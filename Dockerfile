@@ -7,10 +7,10 @@ FROM docker.io/searxng/searxng:latest
 # Bootstrap pip and uv into the system Python (Void Linux has neither by default).
 # Install our MCP server dependencies into the existing SearXNG venv so both
 # searx and fastmcp/httpx share the same Python interpreter.
-# Clean up pip and uv afterwards — they are build-time tools only (~58MB saved).
+# Clean up build tools and venv bloat in the same layer to minimise image size.
 RUN python3 -m ensurepip \
     && python3 -m pip install --quiet uv \
-    && python3 -m uv pip install fastmcp httpx \
+    && python3 -m uv pip install fastmcp httpx markdownify \
         --python /usr/local/searxng/.venv/bin/python \
         --no-cache \
     && rm -rf \
@@ -20,7 +20,9 @@ RUN python3 -m ensurepip \
         /usr/lib/python3.14/site-packages/pip \
         /usr/lib/python3.14/site-packages/pip-*.dist-info \
         /usr/lib/python3.14/site-packages/uv \
-        /usr/lib/python3.14/site-packages/uv-*.dist-info
+        /usr/lib/python3.14/site-packages/uv-*.dist-info \
+    && find /usr/local/searxng/.venv -type d -name "__pycache__" | xargs rm -rf \
+    && find /usr/local/searxng/.venv -type d -name "tests" | xargs rm -rf
 
 # Copy MCP server source, SearXNG config, and entrypoint
 COPY src/ /app/src/
@@ -32,6 +34,10 @@ RUN chown searxng:searxng /etc/searxng/settings.yml \
 # Environment defaults (overridable at docker run time)
 ENV TRANSPORT=stdio
 ENV LOG_LEVEL=WARNING
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8000
+ENV MCP_PATH=/mcp/
 
-# No EXPOSE — SearXNG binds only on 127.0.0.1 inside the container
+# Port exposed only when TRANSPORT=http (ignored in stdio mode)
+EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]

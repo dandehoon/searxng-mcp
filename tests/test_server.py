@@ -156,9 +156,12 @@ async def test_fetch_url_returns_content():
     with patch.object(
         server.searxng_client, "fetch", new_callable=AsyncMock
     ) as mock_fetch:
-        mock_fetch.return_value = "<html>hello</html>"
+        mock_fetch.return_value = "<html><body><h1>Hello</h1><p>World</p></body></html>"
         result = await fetch_url(url="https://example.com")
-    assert result == "<html>hello</html>"
+    # markdownify converts HTML headings and paragraphs to markdown
+    assert "Hello" in result
+    assert "World" in result
+    assert "<html>" not in result
 
 
 @pytest.mark.asyncio

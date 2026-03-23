@@ -4,8 +4,10 @@ import sys
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from typing import Literal, cast
 
 import httpx
+from markdownify import markdownify
 
 import config
 import searxng_client
@@ -111,9 +113,23 @@ async def search_web(
 
 @mcp.tool(name="fetch-url")
 async def fetch_url(url: str) -> str:
-    """Fetch the content of a URL and return it as text. Useful for reading pages found via search_web."""
-    return await searxng_client.fetch(url)
+    """Fetch the content of a URL and return it as readable Markdown text."""
+    html = await searxng_client.fetch(url)
+    return markdownify(
+        html, strip=["script", "style", "head", "nav", "footer", "aside"]
+    )
 
+
+_TransportLiteral = Literal["stdio", "http", "sse", "streamable-http"]
 
 if __name__ == "__main__":
-    mcp.run(transport=config.TRANSPORT)
+    transport = cast(_TransportLiteral, config.TRANSPORT)
+    if config.TRANSPORT in ("http", "streamable-http"):
+        mcp.run(
+            transport=transport,
+            host=config.MCP_HOST,
+            port=config.MCP_PORT,
+            path=config.MCP_PATH,
+        )
+    else:
+        mcp.run(transport=transport)
