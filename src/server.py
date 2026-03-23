@@ -69,7 +69,7 @@ class SearchResponse:
         return header + "\n\n".join(entries)
 
 
-@mcp.tool
+@mcp.tool(name="search-web")
 async def search_web(
     query: str,
     categories: str = "general",
@@ -109,7 +109,7 @@ async def search_web(
     )
 
 
-@mcp.tool
+@mcp.tool(name="fetch-url")
 async def fetch_url(url: str) -> str:
     """Fetch the content of a URL and return it as text. Useful for reading pages found via search_web."""
     return await searxng_client.fetch(url)

@@ -91,7 +91,7 @@ def test_search_web_e2e():
                 "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "search_web",
+                    "name": "search-web",
                     "arguments": {
                         "query": "python programming language",
                         "max_results": 3,
