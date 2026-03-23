@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 import httpx
+from bs4 import BeautifulSoup
 from markdownify import markdownify
 
 import config
@@ -111,13 +112,17 @@ async def search_web(
     )
 
 
+_STRIP_TAGS = ["script", "style", "head", "nav", "footer", "aside"]
+
+
 @mcp.tool(name="fetch-url")
 async def fetch_url(url: str) -> str:
     """Fetch the content of a URL and return it as readable Markdown text."""
     html = await searxng_client.fetch(url)
-    return markdownify(
-        html, strip=["script", "style", "head", "nav", "footer", "aside"]
-    )
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(_STRIP_TAGS):
+        tag.decompose()
+    return markdownify(str(soup))
 
 
 _TransportLiteral = Literal["stdio", "http", "sse", "streamable-http"]

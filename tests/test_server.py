@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import config
 import server
 from server import SearchResponse, SearchResult, search_web, fetch_url
 
@@ -173,3 +174,110 @@ async def test_fetch_url_propagates_errors():
         mock_fetch.side_effect = Exception("timeout")
         with pytest.raises(Exception, match="timeout"):
             await fetch_url(url="https://example.com")
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_strips_script_tags():
+    html = "<html><body><p>Keep this</p><script>evil()</script></body></html>"
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = html
+        result = await fetch_url(url="https://example.com")
+    assert "Keep this" in result
+    assert "evil()" not in result
+    assert "<script>" not in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_strips_nav_and_footer():
+    html = (
+        "<html><body>"
+        "<nav>Site nav</nav>"
+        "<p>Main content</p>"
+        "<footer>Footer text</footer>"
+        "</body></html>"
+    )
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = html
+        result = await fetch_url(url="https://example.com")
+    assert "Main content" in result
+    assert "Site nav" not in result
+    assert "Footer text" not in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_converts_headings_to_markdown():
+    html = "<html><body><h1>Big Title</h1><h2>Subtitle</h2></body></html>"
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = html
+        result = await fetch_url(url="https://example.com")
+    assert "Big Title" in result
+    assert "Subtitle" in result
+    # markdownify uses setext (underline) style for h1/h2 by default,
+    # or ATX (#) style — either way, no raw <h1> tags remain
+    assert "<h1>" not in result
+    assert "<h2>" not in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_converts_links_to_markdown():
+    html = '<html><body><a href="https://example.com">Example</a></body></html>'
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = html
+        result = await fetch_url(url="https://example.com")
+    assert "Example" in result
+    assert "https://example.com" in result
+    assert "<a " not in result
+
+
+# ---------------------------------------------------------------------------
+# config — env var defaults and overrides
+# ---------------------------------------------------------------------------
+
+
+def test_config_mcp_defaults():
+    """MCP_HOST/PORT/PATH should have sensible defaults when env vars are absent."""
+    assert config.MCP_HOST == "0.0.0.0"
+    assert config.MCP_PORT == 8000
+    assert config.MCP_PATH == "/mcp/"
+
+
+def test_config_mcp_port_from_env(monkeypatch):
+    """MCP_PORT env var is parsed as int."""
+    monkeypatch.setenv("MCP_PORT", "9000")
+    import importlib
+
+    importlib.reload(config)
+    assert config.MCP_PORT == 9000
+    # restore default to avoid test pollution
+    monkeypatch.delenv("MCP_PORT", raising=False)
+    importlib.reload(config)
+
+
+def test_config_transport_default():
+    assert config.TRANSPORT == "stdio"
+
+
+# ---------------------------------------------------------------------------
+# search_web — missing score field
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_web_no_score_field():
+    """Results without a 'score' key should have score=None (not crash)."""
+    fake_results = [{"title": "No score", "url": "https://x.com", "content": "text"}]
+    with patch.object(
+        server.searxng_client, "search", new_callable=AsyncMock
+    ) as mock_search:
+        mock_search.return_value = {"results": fake_results}
+        result = await search_web(query="test")
+    assert result.results[0].score is None
+    assert "[score:" not in str(result)
