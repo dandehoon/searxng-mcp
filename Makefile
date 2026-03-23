@@ -26,7 +26,7 @@ lint:
 
 # Install project in editable mode + dev tools
 install-dev:
-	uv pip install -e ".[dev]"
+	uv sync --group dev
 
 test:
 	uv run pytest tests/test_server.py -v

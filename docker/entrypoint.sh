@@ -1,44 +1,46 @@
 #!/bin/sh
-# entrypoint.sh — start SearXNG and the MCP server in a single container
+# entrypoint.sh — start SearXNG and the MCP server in a single container.
+# Runs on Void Linux (the official searxng/searxng base image).
 
 set -eu
 
+VENV=/usr/local/searxng/.venv
+SEARXNG_SETTINGS_PATH=${SEARXNG_SETTINGS_PATH:-/etc/searxng/settings.yml}
+
+# Ensure settings file exists (official image creates it from template if missing)
+if [ ! -f "$SEARXNG_SETTINGS_PATH" ]; then
+    cp -f /usr/local/searxng/searx/settings.yml "$SEARXNG_SETTINGS_PATH"
+    echo "Created settings from template: $SEARXNG_SETTINGS_PATH" >&2
+fi
+
 # Launch SearXNG via granian in the background.
-# PYTHONPATH ensures `searx` package is importable from /usr/local/searxng/searx/
 # Redirect granian's stdout to stderr so it doesn't pollute the MCP STDIO stream.
-PYTHONPATH=/usr/local/searxng python -m granian --interface wsgi searx.webapp:app >&2 &
+PYTHONPATH=/usr/local/searxng \
+    SEARXNG_SETTINGS_PATH="$SEARXNG_SETTINGS_PATH" \
+    "$VENV/bin/granian" searx.webapp:app >&2 &
 SEARXNG_PID=$!
 
-MCP_PID=""
-
-# Cleanup handler: kill both processes on SIGTERM/SIGINT
+# Cleanup handler: kill SearXNG when the MCP server exits
 cleanup() {
-    if [ -n "$MCP_PID" ]; then
-        kill "$MCP_PID" 2>/dev/null || true
-        wait "$MCP_PID" 2>/dev/null || true
-    fi
     kill "$SEARXNG_PID" 2>/dev/null || true
     wait "$SEARXNG_PID" 2>/dev/null || true
-    exit 0
 }
-trap cleanup TERM INT
+trap cleanup EXIT TERM INT
 
 # Wait for SearXNG to become ready (max 30 seconds)
 ATTEMPTS=0
 MAX_ATTEMPTS=30
 echo "Waiting for SearXNG to start..." >&2
-until curl -sf "http://127.0.0.1:8080/healthz" > /dev/null 2>&1; do
+until wget -q -O /dev/null "http://127.0.0.1:8080/healthz" 2>/dev/null; do
     ATTEMPTS=$((ATTEMPTS + 1))
     if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
         echo "ERROR: SearXNG failed to start after ${MAX_ATTEMPTS} seconds" >&2
-        kill "$SEARXNG_PID" 2>/dev/null || true
         exit 1
     fi
     sleep 1
 done
 echo "SearXNG is ready" >&2
 
-# Start MCP server (foreground so stdin/stdout are inherited directly)
-# Using exec replaces the shell process with the MCP server, which is cleaner
-# for STDIO transport — no shell buffering between Docker and the MCP server.
-exec python /app/src/server.py
+# Start the MCP server in the foreground (exec replaces this shell).
+# stdin/stdout are wired directly to Docker — clean STDIO transport.
+exec "$VENV/bin/python" /app/src/server.py
