@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Tests (not needed in image)
+tests/
+
+# Dev/editor files
+.git/
+.gitignore
+*.md
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,28 @@
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "searxng-mcp"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "searxng-mcp-secret-change-in-prod"
+  bind_address: "127.0.0.1"
+  port: 8080
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+outgoing:
+  request_timeout: 3.0
+  max_request_timeout: 10.0
+  useragent_suffix: ""
+  pool_connections: 10
+  pool_maxsize: 10
