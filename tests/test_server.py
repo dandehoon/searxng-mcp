@@ -10,73 +10,86 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 import server
-from server import _format_results, search_web, fetch_url
+from server import SearchResponse, SearchResult, search_web, fetch_url
 
 
 # ---------------------------------------------------------------------------
-# _format_results — pure-function tests (synchronous)
+# SearchResponse.__str__ — formatting tests (synchronous)
 # ---------------------------------------------------------------------------
 
 
-def test_format_results_empty():
-    result = _format_results([], "test query")
-    assert result == "No results found for: test query"
+def test_response_empty():
+    resp = SearchResponse(query="test", total=0, shown=0, results=[])
+    assert str(resp) == "No results found for: test"
 
 
-def test_format_results_single():
-    results = [
-        {"title": "Test", "url": "https://example.com", "content": "Some content"}
-    ]
-    output = _format_results(results, "hello")
-    assert "Test" in output
-    assert "https://example.com" in output
-    assert "Some content" in output
-    assert "1." in output
+def test_response_single():
+    resp = SearchResponse(
+        query="hello",
+        total=1,
+        shown=1,
+        results=[
+            SearchResult(
+                title="Test", url="https://example.com", snippet="Some content"
+            )
+        ],
+    )
+    text = str(resp)
+    assert "Test" in text
+    assert "https://example.com" in text
+    assert "Some content" in text
+    assert "1." in text
 
 
-def test_format_results_multiple():
-    results = [
-        {"title": f"Title {i}", "url": f"https://example.com/{i}", "content": ""}
-        for i in range(3)
-    ]
-    output = _format_results(results, "multi")
-    assert "1." in output
-    assert "2." in output
-    assert "3." in output
+def test_response_multiple():
+    resp = SearchResponse(
+        query="multi",
+        total=3,
+        shown=3,
+        results=[
+            SearchResult(title=f"Title {i}", url=f"https://example.com/{i}", snippet="")
+            for i in range(3)
+        ],
+    )
+    text = str(resp)
+    assert "1." in text
+    assert "2." in text
+    assert "3." in text
 
 
-def test_format_results_header():
-    results = [
-        {"title": "A", "url": "https://a.com", "content": ""},
-        {"title": "B", "url": "https://b.com", "content": ""},
-    ]
-    output = _format_results(results, "my query")
-    assert "my query" in output
-    assert "2" in output
+def test_response_score_shown():
+    resp = SearchResponse(
+        query="q",
+        total=1,
+        shown=1,
+        results=[
+            SearchResult(title="Scored", url="https://x.com", snippet="", score=0.85)
+        ],
+    )
+    assert "0.85" in str(resp)
 
 
-def test_format_results_score_shown():
-    results = [
-        {"title": "Scored", "url": "https://x.com", "content": "", "score": 0.85}
-    ]
-    output = _format_results(results, "q")
-    assert "0.85" in output
+def test_response_total_count_truncated():
+    resp = SearchResponse(
+        query="q",
+        total=20,
+        shown=3,
+        results=[
+            SearchResult(title=f"R{i}", url=f"https://x.com/{i}", snippet="")
+            for i in range(3)
+        ],
+    )
+    assert "3 of 20" in str(resp)
 
 
-def test_format_results_total_count():
-    """Shows 'X of Y' when total exceeds shown results."""
-    results = [
-        {"title": f"R{i}", "url": f"https://x.com/{i}", "content": ""} for i in range(3)
-    ]
-    output = _format_results(results, "q", total=20)
-    assert "3 of 20" in output
-
-
-def test_format_results_no_total_when_equal():
-    """Shows plain count when all results are shown."""
-    results = [{"title": "R", "url": "https://x.com", "content": ""}]
-    output = _format_results(results, "q", total=1)
-    assert "of" not in output
+def test_response_no_of_when_not_truncated():
+    resp = SearchResponse(
+        query="q",
+        total=1,
+        shown=1,
+        results=[SearchResult(title="R", url="https://x.com", snippet="")],
+    )
+    assert " of " not in str(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +104,9 @@ async def test_search_web_error_handling():
     ) as mock_search:
         mock_search.side_effect = Exception("connection refused")
         result = await search_web(query="test")
-    assert result.startswith("Search failed:")
+    assert isinstance(result, SearchResponse)
+    assert result.total == 0
+    assert "Search failed" in result.results[0].snippet
 
 
 @pytest.mark.asyncio
@@ -106,11 +121,11 @@ async def test_search_web_max_results():
         mock_search.return_value = {"results": fake_results}
         result = await search_web(query="test", max_results=5)
 
-    for n in range(1, 6):
-        assert f"{n}." in result
-    assert "6." not in result
-    # Should show "5 of 20"
-    assert "5 of 20" in result
+    assert isinstance(result, SearchResponse)
+    assert result.shown == 5
+    assert result.total == 20
+    assert len(result.results) == 5
+    assert "5 of 20" in str(result)
 
 
 # ---------------------------------------------------------------------------

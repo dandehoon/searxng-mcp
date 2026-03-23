@@ -2,6 +2,8 @@
 
 import sys
 import logging
+from dataclasses import dataclass, field
+
 import config
 import searxng_client
 from fastmcp import FastMCP
@@ -11,27 +13,40 @@ logging.basicConfig(level=config.LOG_LEVEL, stream=sys.stderr)
 mcp = FastMCP("searxng-mcp")
 
 
-def _format_results(results: list, query: str, total: int | None = None) -> str:
-    """Format SearXNG result dicts into a readable string."""
-    if not results:
-        return f"No results found for: {query}"
+@dataclass
+class SearchResult:
+    title: str
+    url: str
+    snippet: str
+    score: float | None = None
 
-    shown = len(results)
-    count_note = f"{shown} of {total}" if total and total > shown else str(shown)
-    header = f"Search results for '{query}' ({count_note} results):\n\n"
 
-    entries = []
-    for i, r in enumerate(results):
-        score = r.get("score")
-        score_str = f" [score: {score:.2f}]" if score is not None else ""
-        entry = (
-            f"{i + 1}. {r.get('title', 'No title')}{score_str}\n"
-            f"   URL: {r.get('url', '')}\n"
-            f"   {r.get('content', '').strip()}"
+@dataclass
+class SearchResponse:
+    query: str
+    total: int
+    shown: int
+    results: list[SearchResult] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        if not self.results:
+            return f"No results found for: {self.query}"
+
+        count = (
+            f"{self.shown} of {self.total}"
+            if self.total > self.shown
+            else str(self.shown)
         )
-        entries.append(entry)
+        header = f"Search results for '{self.query}' ({count} results):\n\n"
 
-    return header + "\n\n".join(entries)
+        entries = []
+        for i, r in enumerate(self.results):
+            score_str = f" [score: {r.score:.2f}]" if r.score is not None else ""
+            entries.append(
+                f"{i + 1}. {r.title}{score_str}\n   URL: {r.url}\n   {r.snippet}"
+            )
+
+        return header + "\n\n".join(entries)
 
 
 @mcp.tool
@@ -44,9 +59,9 @@ async def search_web(
     time_range: str | None = None,
     safesearch: int = 0,
     max_results: int = 10,
-) -> str:
+) -> SearchResponse:
     """Search the web using SearXNG. Returns titles, URLs, content snippets, and relevance scores."""
-    params = {
+    params: dict = {
         "q": query,
         "categories": categories,
         "language": language,
@@ -60,11 +75,33 @@ async def search_web(
 
     try:
         data = await searxng_client.search(params)
-        all_results = data.get("results", [])
-        results = all_results[:max_results]
-        return _format_results(results, query, total=len(all_results))
     except Exception as e:
-        return f"Search failed: {type(e).__name__}: {e}"
+        return SearchResponse(
+            query=query,
+            total=0,
+            shown=0,
+            results=[
+                SearchResult(
+                    title="Error",
+                    url="",
+                    snippet=f"Search failed: {type(e).__name__}: {e}",
+                )
+            ],
+        )
+
+    all_results = data.get("results", [])
+    results = [
+        SearchResult(
+            title=r.get("title", "No title"),
+            url=r.get("url", ""),
+            snippet=r.get("content", "").strip(),
+            score=r.get("score"),
+        )
+        for r in all_results[:max_results]
+    ]
+    return SearchResponse(
+        query=query, total=len(all_results), shown=len(results), results=results
+    )
 
 
 @mcp.tool
