@@ -98,15 +98,14 @@ def test_response_no_of_when_not_truncated():
 
 
 @pytest.mark.asyncio
-async def test_search_web_error_handling():
+async def test_search_web_propagates_errors():
+    """search_web lets exceptions propagate — FastMCP converts them to MCP errors."""
     with patch.object(
         server.searxng_client, "search", new_callable=AsyncMock
     ) as mock_search:
         mock_search.side_effect = Exception("connection refused")
-        result = await search_web(query="test")
-    assert isinstance(result, SearchResponse)
-    assert result.total == 0
-    assert "Search failed" in result.results[0].snippet
+        with pytest.raises(Exception, match="connection refused"):
+            await search_web(query="test")
 
 
 @pytest.mark.asyncio
@@ -128,6 +127,25 @@ async def test_search_web_max_results():
     assert "5 of 20" in str(result)
 
 
+@pytest.mark.asyncio
+async def test_search_web_score_rounded():
+    fake_results = [
+        {
+            "title": "X",
+            "url": "https://x.com",
+            "content": "",
+            "score": 2.090909090909091,
+        }
+    ]
+    with patch.object(
+        server.searxng_client, "search", new_callable=AsyncMock
+    ) as mock_search:
+        mock_search.return_value = {"results": fake_results}
+        result = await search_web(query="test")
+
+    assert result.results[0].score == 2.091
+
+
 # ---------------------------------------------------------------------------
 # fetch_url — async tool tests
 # ---------------------------------------------------------------------------
@@ -144,10 +162,11 @@ async def test_fetch_url_returns_content():
 
 
 @pytest.mark.asyncio
-async def test_fetch_url_error_handling():
+async def test_fetch_url_propagates_errors():
+    """fetch_url lets exceptions propagate — FastMCP converts them to MCP errors."""
     with patch.object(
         server.searxng_client, "fetch", new_callable=AsyncMock
     ) as mock_fetch:
         mock_fetch.side_effect = Exception("timeout")
-        result = await fetch_url(url="https://example.com")
-    assert result.startswith("Fetch failed:")
+        with pytest.raises(Exception, match="timeout"):
+            await fetch_url(url="https://example.com")

@@ -2,7 +2,10 @@
 
 import sys
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+
+import httpx
 
 import config
 import searxng_client
@@ -10,7 +13,24 @@ from fastmcp import FastMCP
 
 logging.basicConfig(level=config.LOG_LEVEL, stream=sys.stderr)
 
-mcp = FastMCP("searxng-mcp")
+
+@asynccontextmanager
+async def lifespan(server: FastMCP):
+    """Manage shared HTTP clients: create on startup, close on shutdown."""
+    search_client = httpx.AsyncClient(timeout=config.SEARXNG_TIMEOUT)
+    fetch_client = httpx.AsyncClient(
+        timeout=config.SEARXNG_TIMEOUT,
+        headers=searxng_client.FETCH_HEADERS,
+    )
+    searxng_client.init(search_client, fetch_client)
+    try:
+        yield
+    finally:
+        await search_client.aclose()
+        await fetch_client.aclose()
+
+
+mcp = FastMCP("searxng-mcp", lifespan=lifespan)
 
 
 @dataclass
@@ -41,7 +61,7 @@ class SearchResponse:
 
         entries = []
         for i, r in enumerate(self.results):
-            score_str = f" [score: {r.score:.2f}]" if r.score is not None else ""
+            score_str = f" [score: {r.score}]" if r.score is not None else ""
             entries.append(
                 f"{i + 1}. {r.title}{score_str}\n   URL: {r.url}\n   {r.snippet}"
             )
@@ -73,29 +93,14 @@ async def search_web(
     if time_range is not None:
         params["time_range"] = time_range
 
-    try:
-        data = await searxng_client.search(params)
-    except Exception as e:
-        return SearchResponse(
-            query=query,
-            total=0,
-            shown=0,
-            results=[
-                SearchResult(
-                    title="Error",
-                    url="",
-                    snippet=f"Search failed: {type(e).__name__}: {e}",
-                )
-            ],
-        )
-
+    data = await searxng_client.search(params)
     all_results = data.get("results", [])
     results = [
         SearchResult(
             title=r.get("title", "No title"),
             url=r.get("url", ""),
             snippet=r.get("content", "").strip(),
-            score=r.get("score"),
+            score=round(r["score"], 3) if r.get("score") is not None else None,
         )
         for r in all_results[:max_results]
     ]
@@ -107,10 +112,7 @@ async def search_web(
 @mcp.tool
 async def fetch_url(url: str) -> str:
     """Fetch the content of a URL and return it as text. Useful for reading pages found via search_web."""
-    try:
-        return await searxng_client.fetch(url)
-    except Exception as e:
-        return f"Fetch failed: {type(e).__name__}: {e}"
+    return await searxng_client.fetch(url)
 
 
 if __name__ == "__main__":
