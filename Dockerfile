@@ -15,9 +15,10 @@ RUN PYLIB=$(python3 -c "import sysconfig; print(sysconfig.get_path('purelib'))")
         --python /usr/local/searxng/.venv/bin/python \
         --no-cache \
     && rm -rf \
-        /usr/sbin/uv \
-        /usr/sbin/uvx \
-        /usr/sbin/pip3 \
+        /usr/sbin/uv /usr/bin/uv \
+        /usr/sbin/uvx /usr/bin/uvx \
+        /usr/sbin/pip3 /usr/sbin/pip3.* \
+        /usr/bin/pip3 /usr/bin/pip3.* \
         "$PYLIB/pip" \
         "$PYLIB/pip-"*.dist-info \
         "$PYLIB/uv" \

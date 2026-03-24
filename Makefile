@@ -1,7 +1,6 @@
 IMAGE_NAME ?= searxng-mcp
 IMAGE_TAG ?= latest
 FULL_IMAGE = $(IMAGE_NAME):$(IMAGE_TAG)
-UV ?= uv
 TRANSPORT ?= stdio
 
 .PHONY: build run dev lint install-dev clean test test-all
