@@ -8,7 +8,8 @@ FROM docker.io/searxng/searxng:latest
 # Install our MCP server dependencies into the existing SearXNG venv so both
 # searx and fastmcp/httpx share the same Python interpreter.
 # Clean up build tools and venv bloat in the same layer to minimise image size.
-RUN python3 -m ensurepip \
+RUN PYLIB=$(python3 -c "import sysconfig; print(sysconfig.get_path('purelib'))") \
+    && python3 -m ensurepip \
     && python3 -m pip install --quiet uv \
     && python3 -m uv pip install fastmcp httpx markdownify \
         --python /usr/local/searxng/.venv/bin/python \
@@ -17,20 +18,19 @@ RUN python3 -m ensurepip \
         /usr/sbin/uv \
         /usr/sbin/uvx \
         /usr/sbin/pip3 \
-        /usr/lib/python3.14/site-packages/pip \
-        /usr/lib/python3.14/site-packages/pip-*.dist-info \
-        /usr/lib/python3.14/site-packages/uv \
-        /usr/lib/python3.14/site-packages/uv-*.dist-info \
-    && find /usr/local/searxng/.venv -type d -name "__pycache__" | xargs rm -rf \
-    && find /usr/local/searxng/.venv -type d -name "tests" | xargs rm -rf
+        "$PYLIB/pip" \
+        "$PYLIB/pip-"*.dist-info \
+        "$PYLIB/uv" \
+        "$PYLIB/uv-"*.dist-info \
+    && find /usr/local/searxng/.venv -type d -name "__pycache__" -exec rm -rf {} + \
+    && find /usr/local/searxng/.venv -type d -name "tests" -exec rm -rf {} +
 
 # Copy MCP server source, SearXNG config, and entrypoint
 COPY src/ /app/src/
-COPY config/settings.yml /etc/searxng/settings.yml
-COPY config/limiter.toml /etc/searxng/limiter.toml
+COPY --chown=searxng:searxng config/settings.yml /etc/searxng/settings.yml
+COPY --chown=searxng:searxng config/limiter.toml /etc/searxng/limiter.toml
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chown searxng:searxng /etc/searxng/settings.yml /etc/searxng/limiter.toml \
-    && chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Environment defaults (overridable at docker run time)
 ENV TRANSPORT=stdio
@@ -40,6 +40,7 @@ ENV MCP_PORT=8000
 ENV MCP_PATH=/mcp/
 ENV SEARXNG_URL=http://127.0.0.1:8080
 ENV SEARXNG_TIMEOUT=30.0
+ENV FETCH_TIMEOUT=60.0
 ENV SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
 
 # Port exposed only when TRANSPORT=http (ignored in stdio mode)

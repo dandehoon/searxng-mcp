@@ -2,6 +2,7 @@ IMAGE_NAME ?= searxng-mcp
 IMAGE_TAG ?= latest
 FULL_IMAGE = $(IMAGE_NAME):$(IMAGE_TAG)
 UV ?= uv
+TRANSPORT ?= stdio
 
 .PHONY: build run run-detached dev lint install-dev clean test test-all
 
@@ -16,7 +17,7 @@ run-detached:
 
 # Local run without Docker — requires SearXNG running at SEARXNG_URL (default http://127.0.0.1:8080)
 dev:
-	TRANSPORT=stdio uv run python src/server.py
+	TRANSPORT=$(TRANSPORT) uv run python src/server.py
 
 # Requires: pip install ruff mypy
 lint:

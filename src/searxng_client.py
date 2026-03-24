@@ -3,10 +3,6 @@
 import httpx
 import config
 
-SEARXNG_SEARCH_URL = config.SEARXNG_URL + "/search"
-
-# Persistent client for SearXNG API calls — initialized via lifespan in server.py.
-# Replaced by a real client instance on server startup.
 _search_client: httpx.AsyncClient | None = None
 _fetch_client: httpx.AsyncClient | None = None
 
@@ -24,19 +20,38 @@ def init(search_client: httpx.AsyncClient, fetch_client: httpx.AsyncClient) -> N
     _fetch_client = fetch_client
 
 
-async def search(params: dict) -> dict:
+async def search(params: dict[str, str | int]) -> dict[str, object]:
     """Call SearXNG /search and return parsed JSON. Always forces format=json."""
-    assert _search_client is not None, "searxng_client not initialized"
-    response = await _search_client.get(
-        SEARXNG_SEARCH_URL, params={"format": "json", **params}
-    )
+    if _search_client is None:
+        raise RuntimeError("searxng_client not initialized")
+    url = config.SEARXNG_URL.rstrip("/") + "/search"
+    response = await _search_client.get(url, params={"format": "json", **params})
     response.raise_for_status()
     return response.json()
 
 
 async def fetch(url: str) -> str:
     """Fetch a URL and return the response text."""
-    assert _fetch_client is not None, "searxng_client not initialized"
+    if _fetch_client is None:
+        raise RuntimeError("searxng_client not initialized")
     response = await _fetch_client.get(url, follow_redirects=True)
     response.raise_for_status()
     return response.text
+
+
+async def proxy_request(
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    content: bytes,
+) -> httpx.Response:
+    """Forward an arbitrary HTTP request through the fetch client."""
+    if _fetch_client is None:
+        raise RuntimeError("searxng_client not initialized")
+    return await _fetch_client.request(
+        method=method,
+        url=url,
+        headers=headers,
+        content=content,
+        follow_redirects=True,
+    )

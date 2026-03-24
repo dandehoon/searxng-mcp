@@ -24,6 +24,7 @@ search:
     - json
 
 server:
+  # Auto-randomized at container startup in entrypoint.sh if unchanged
   secret_key: "searxng-mcp-secret-change-in-prod"
   bind_address: "127.0.0.1"
   port: 8080

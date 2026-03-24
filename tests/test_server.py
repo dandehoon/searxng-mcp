@@ -264,10 +264,11 @@ def test_config_mcp_port_from_env(monkeypatch):
     import importlib
 
     importlib.reload(config)
-    assert config.MCP_PORT == 9000
-    # restore default to avoid test pollution
-    monkeypatch.delenv("MCP_PORT", raising=False)
-    importlib.reload(config)
+    try:
+        assert config.MCP_PORT == 9000
+    finally:
+        monkeypatch.delenv("MCP_PORT", raising=False)
+        importlib.reload(config)
 
 
 def test_config_transport_default():
@@ -324,8 +325,9 @@ async def test_proxy_forwards_request():
     mock_resp = httpx.Response(200, content=b"ok")
     req = _make_request({"path": "search"}, query="q=test")
 
-    with patch.object(searxng_client, "_fetch_client") as mock_client:
-        mock_client.request = AsyncMock(return_value=mock_resp)
+    with patch.object(
+        searxng_client, "proxy_request", new=AsyncMock(return_value=mock_resp)
+    ):
         result = await _proxy(req)
 
     assert result.status_code == 200
@@ -343,8 +345,9 @@ async def test_proxy_strips_hop_by_hop_headers():
     mock_resp = httpx.Response(200, content=b"", headers=hop_headers)
     req = _make_request({"path": "search"})
 
-    with patch.object(searxng_client, "_fetch_client") as mock_client:
-        mock_client.request = AsyncMock(return_value=mock_resp)
+    with patch.object(
+        searxng_client, "proxy_request", new=AsyncMock(return_value=mock_resp)
+    ):
         result = await _proxy(req)
 
     result_header_keys = {k.lower() for k in result.headers.keys()}
@@ -358,12 +361,11 @@ async def test_proxy_root_path():
     mock_resp = httpx.Response(200, content=b"root")
     req = _make_request({})  # empty path_params — root route
 
-    with patch.object(searxng_client, "_fetch_client") as mock_client:
-        mock_client.request = AsyncMock(return_value=mock_resp)
+    mock_proxy = AsyncMock(return_value=mock_resp)
+    with patch.object(searxng_client, "proxy_request", new=mock_proxy):
         await _proxy(req)
 
-    call_kwargs = mock_client.request.call_args
-    called_url: str = call_kwargs.kwargs["url"]
+    called_url: str = mock_proxy.call_args.kwargs["url"]
     assert called_url == config.SEARXNG_URL.rstrip("/") + "/"
     assert "//" not in called_url.replace("://", "")
 
@@ -373,10 +375,9 @@ async def test_proxy_passes_query_string():
     mock_resp = httpx.Response(200, content=b"")
     req = _make_request({"path": "search"}, query="q=hello&format=json")
 
-    with patch.object(searxng_client, "_fetch_client") as mock_client:
-        mock_client.request = AsyncMock(return_value=mock_resp)
+    mock_proxy = AsyncMock(return_value=mock_resp)
+    with patch.object(searxng_client, "proxy_request", new=mock_proxy):
         await _proxy(req)
 
-    call_kwargs = mock_client.request.call_args
-    called_url: str = call_kwargs.kwargs["url"]
+    called_url: str = mock_proxy.call_args.kwargs["url"]
     assert called_url.endswith("?q=hello&format=json")

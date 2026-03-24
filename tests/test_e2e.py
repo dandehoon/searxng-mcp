@@ -58,109 +58,118 @@ def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> None:
     raise TimeoutError(f"Port {host}:{port} did not open within {timeout}s")
 
 
-def test_search_web_e2e():
-    """Full E2E: spin up the Docker container, perform an MCP search, validate."""
+@pytest.fixture
+def stdio_container():
     proc = subprocess.Popen(
         ["docker", "run", "--rm", "-i", "searxng-mcp:latest"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-
+    yield proc
+    proc.terminate()
     try:
-        # 1. MCP initialize handshake
-        _send(
-            proc,
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test-client", "version": "1.0"},
-                },
-            },
-        )
-
-        init_response = _read_response(proc, timeout=120.0)
-        assert (
-            init_response.get("result", {}).get("serverInfo", {}).get("name")
-            == "searxng-mcp"
-        ), f"Unexpected initialize response: {init_response}"
-
-        # 2. Send initialized notification (no response expected)
-        _send(
-            proc,
-            {
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {},
-            },
-        )
-
-        # 3. Perform a search via tools/call
-        _send(
-            proc,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "search-web",
-                    "arguments": {
-                        "query": "python programming language",
-                        "max_results": 3,
-                    },
-                },
-            },
-        )
-
-        search_response = _read_response(proc, timeout=120.0)
-
-        assert "error" not in search_response, (
-            f"tools/call returned an error: {search_response['error']}"
-        )
-
-        content = search_response.get("result", {}).get("content", [])
-        assert content, f"tools/call result has no content: {search_response}"
-
-        text = content[0].get("text", "")
-        assert text, "Response content text is empty"
-        assert not text.startswith("Search failed"), (
-            f"Search returned an error string: {text}"
-        )
-
-        # 4. Fetch a URL via tools/call
-        _send(
-            proc,
-            {
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {
-                    "name": "fetch-url",
-                    "arguments": {"url": "https://example.com"},
-                },
-            },
-        )
-
-        fetch_response = _read_response(proc, timeout=30.0)
-        assert "error" not in fetch_response, (
-            f"fetch-url returned an error: {fetch_response.get('error')}"
-        )
-        fetch_content = fetch_response.get("result", {}).get("content", [])
-        assert fetch_content, f"fetch-url result has no content: {fetch_response}"
-        fetch_text = fetch_content[0].get("text", "")
-        assert fetch_text, "fetch-url response content text is empty"
-        # example.com has no <script> or <nav> — just a heading and paragraph
-        assert "<html>" not in fetch_text, "Raw HTML leaked into fetch-url output"
-
-    finally:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
 
 
+@pytest.mark.timeout(180)
+def test_search_web_e2e(stdio_container):
+    """Full E2E: spin up the Docker container, perform an MCP search, validate."""
+    proc = stdio_container
+
+    # 1. MCP initialize handshake
+    _send(
+        proc,
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+            },
+        },
+    )
+
+    init_response = _read_response(proc, timeout=120.0)
+    assert (
+        init_response.get("result", {}).get("serverInfo", {}).get("name")
+        == "searxng-mcp"
+    ), f"Unexpected initialize response: {init_response}"
+
+    # 2. Send initialized notification (no response expected)
+    _send(
+        proc,
+        {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {},
+        },
+    )
+
+    # 3. Perform a search via tools/call
+    _send(
+        proc,
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "search-web",
+                "arguments": {
+                    "query": "python programming language",
+                    "max_results": 3,
+                },
+            },
+        },
+    )
+
+    search_response = _read_response(proc, timeout=120.0)
+
+    assert "error" not in search_response, (
+        f"tools/call returned an error: {search_response['error']}"
+    )
+
+    content = search_response.get("result", {}).get("content", [])
+    assert content, f"tools/call result has no content: {search_response}"
+
+    text = content[0].get("text", "")
+    assert text, "Response content text is empty"
+    assert not text.startswith("Search failed"), (
+        f"Search returned an error string: {text}"
+    )
+
+    # 4. Fetch a URL via tools/call
+    _send(
+        proc,
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "fetch-url",
+                "arguments": {"url": "https://example.com"},
+            },
+        },
+    )
+
+    fetch_response = _read_response(proc, timeout=30.0)
+    assert "error" not in fetch_response, (
+        f"fetch-url returned an error: {fetch_response.get('error')}"
+    )
+    fetch_content = fetch_response.get("result", {}).get("content", [])
+    assert fetch_content, f"fetch-url result has no content: {fetch_response}"
+    fetch_text = fetch_content[0].get("text", "")
+    assert fetch_text, "fetch-url response content text is empty"
+    # example.com has no <script> or <nav> — just a heading and paragraph
+    assert "<html>" not in fetch_text, "Raw HTML leaked into fetch-url output"
+
+
+@pytest.mark.timeout(180)
 def test_http_transport_e2e():
     """E2E: start container in HTTP transport mode, verify the MCP endpoint is reachable."""
     host = "127.0.0.1"
@@ -231,7 +240,7 @@ def test_http_transport_e2e():
         assert resp.status == 200, f"Expected HTTP 200, got {resp.status}"
 
         # Read the SSE stream — data lines look like: data: {"jsonrpc":"2.0",...}
-        body = resp.read(4096).decode(errors="replace")
+        body = resp.read(65536).decode(errors="replace")
         conn.close()
 
         sse_data = None
@@ -247,8 +256,12 @@ def test_http_transport_e2e():
         ), f"Unexpected server name in HTTP initialize response: {msg}"
 
     finally:
-        proc.kill()
-        proc.wait()
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 @pytest.mark.timeout(60)
@@ -278,6 +291,9 @@ def test_startup_time():
             .decode()
             .strip()
         )
+        assert port_info, (
+            "docker port returned empty output — container may have crashed"
+        )
         port = int(port_info.split(":")[-1])
 
         start = time.monotonic()
@@ -302,6 +318,7 @@ def test_startup_time():
         subprocess.run(["docker", "stop", container_id], capture_output=True)
 
 
+@pytest.mark.timeout(180)
 def test_proxy_e2e():
     """E2E: in HTTP transport mode the transparent proxy forwards /healthz to SearXNG."""
     host = "127.0.0.1"
@@ -354,5 +371,9 @@ def test_proxy_e2e():
         assert "OK" in body, f"Expected 'OK' in /healthz body, got: {body!r}"
 
     finally:
-        proc.kill()
-        proc.wait()
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()

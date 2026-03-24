@@ -14,19 +14,17 @@ if [ ! -f "$SEARXNG_SETTINGS_PATH" ]; then
     echo "Created settings from template: $SEARXNG_SETTINGS_PATH" >&2
 fi
 
+# Generate a random secret key if using the placeholder
+if grep -q "searxng-mcp-secret-change-in-prod" "$SEARXNG_SETTINGS_PATH" 2>/dev/null; then
+    RANDOM_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || date +%s%N)
+    sed -i "s/searxng-mcp-secret-change-in-prod/$RANDOM_KEY/" "$SEARXNG_SETTINGS_PATH"
+fi
+
 # Launch SearXNG via granian in the background.
 # Redirect granian's stdout to stderr so it doesn't pollute the MCP STDIO stream.
 PYTHONPATH=/usr/local/searxng \
     SEARXNG_SETTINGS_PATH="$SEARXNG_SETTINGS_PATH" \
     "$VENV/bin/granian" --workers 1 --no-reload searx.webapp:app >&2 &
-SEARXNG_PID=$!
-
-# Cleanup handler: kill SearXNG when the MCP server exits
-cleanup() {
-    kill "$SEARXNG_PID" 2>/dev/null || true
-    wait "$SEARXNG_PID" 2>/dev/null || true
-}
-trap cleanup EXIT TERM INT
 
 # Wait for SearXNG to become ready (max 30 seconds)
 ATTEMPTS=0
@@ -38,10 +36,9 @@ until wget -q -O /dev/null "${SEARXNG_URL}/healthz" 2>/dev/null; do
         echo "ERROR: SearXNG failed to start after 30 seconds" >&2
         exit 1
     fi
-    sleep 0.1
+    sleep 0.1  # busybox ash supports fractional sleep
 done
 echo "SearXNG is ready" >&2
 
-# Start the MCP server in the foreground (exec replaces this shell).
-# stdin/stdout are wired directly to Docker — clean STDIO transport.
+# exec replaces this shell process; Docker sends SIGTERM to Python (PID 1) on stop.
 exec "$VENV/bin/python" /app/src/server.py

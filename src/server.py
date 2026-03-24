@@ -40,7 +40,7 @@ async def lifespan(server: FastMCP):
     """Manage shared HTTP clients: create on startup, close on shutdown."""
     search_client = httpx.AsyncClient(timeout=config.SEARXNG_TIMEOUT)
     fetch_client = httpx.AsyncClient(
-        timeout=config.SEARXNG_TIMEOUT,
+        timeout=config.FETCH_TIMEOUT,
         headers=searxng_client.FETCH_HEADERS,
     )
     searxng_client.init(search_client, fetch_client)
@@ -102,7 +102,7 @@ async def search_web(
     max_results: int = 10,
 ) -> SearchResponse:
     """Search the web using SearXNG. Returns titles, URLs, content snippets, and relevance scores."""
-    params: dict = {
+    params: dict[str, str | int] = {
         "q": query,
         "categories": categories,
         "language": language,
@@ -155,12 +155,11 @@ async def _proxy(request: Request) -> Response:
     headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
     body = await request.body()
 
-    resp = await searxng_client._fetch_client.request(
+    resp = await searxng_client.proxy_request(
         method=request.method,
         url=target_url,
         headers=headers,
         content=body,
-        follow_redirects=True,
     )
 
     resp_headers = {
@@ -171,17 +170,19 @@ async def _proxy(request: Request) -> Response:
     )
 
 
-if config.TRANSPORT in ("http", "streamable-http", "sse"):
+def _register_routes() -> None:
     mcp.custom_route("/", methods=["GET", "POST", "HEAD"])(_proxy)
     mcp.custom_route("/{path:path}", methods=["GET", "POST", "HEAD", "OPTIONS"])(_proxy)
 
 
 async def _run() -> None:
+    if config.TRANSPORT in ("http", "streamable-http", "sse"):
+        _register_routes()
     transport = cast(_TransportLiteral, config.TRANSPORT)
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGTERM, loop.stop)
     try:
-        if config.TRANSPORT in ("http", "streamable-http"):
+        if config.TRANSPORT in ("http", "streamable-http", "sse"):
             await mcp.run_async(
                 transport=transport,
                 host=config.MCP_HOST,
