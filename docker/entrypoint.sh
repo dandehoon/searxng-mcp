@@ -6,6 +6,7 @@ set -eu
 
 VENV=/usr/local/searxng/.venv
 SEARXNG_SETTINGS_PATH=${SEARXNG_SETTINGS_PATH:-/etc/searxng/settings.yml}
+SEARXNG_URL=${SEARXNG_URL:-http://127.0.0.1:8080}
 
 # Ensure settings file exists (official image creates it from template if missing)
 if [ ! -f "$SEARXNG_SETTINGS_PATH" ]; then
@@ -17,7 +18,7 @@ fi
 # Redirect granian's stdout to stderr so it doesn't pollute the MCP STDIO stream.
 PYTHONPATH=/usr/local/searxng \
     SEARXNG_SETTINGS_PATH="$SEARXNG_SETTINGS_PATH" \
-    "$VENV/bin/granian" searx.webapp:app >&2 &
+    "$VENV/bin/granian" --workers 1 --no-reload searx.webapp:app >&2 &
 SEARXNG_PID=$!
 
 # Cleanup handler: kill SearXNG when the MCP server exits
@@ -29,15 +30,15 @@ trap cleanup EXIT TERM INT
 
 # Wait for SearXNG to become ready (max 30 seconds)
 ATTEMPTS=0
-MAX_ATTEMPTS=30
+MAX_ATTEMPTS=300
 echo "Waiting for SearXNG to start..." >&2
-until wget -q -O /dev/null "http://127.0.0.1:8080/healthz" 2>/dev/null; do
+until wget -q -O /dev/null "${SEARXNG_URL}/healthz" 2>/dev/null; do
     ATTEMPTS=$((ATTEMPTS + 1))
     if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
-        echo "ERROR: SearXNG failed to start after ${MAX_ATTEMPTS} seconds" >&2
+        echo "ERROR: SearXNG failed to start after 30 seconds" >&2
         exit 1
     fi
-    sleep 1
+    sleep 0.1
 done
 echo "SearXNG is ready" >&2
 

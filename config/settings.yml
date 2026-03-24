@@ -1,4 +1,16 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - google
+      - bing
+      - duckduckgo
+      - brave
+      - startpage
+      - wikipedia
+      - stackoverflow
+      - github
+      - arxiv
+      - pypi
 
 general:
   debug: false
@@ -19,6 +31,11 @@ server:
   public_instance: false
   image_proxy: false
   method: "GET"
+  botdetection:
+    ip_limit:
+      enabled: false
+    link_token:
+      enabled: false
 
 outgoing:
   request_timeout: 3.0

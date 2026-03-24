@@ -1,5 +1,7 @@
 """FastMCP server exposing SearXNG search and URL fetching as MCP tools."""
 
+import asyncio
+import signal
 import sys
 import logging
 from contextlib import asynccontextmanager
@@ -9,10 +11,26 @@ from typing import Literal, cast
 import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
+from starlette.requests import Request
+from starlette.responses import Response
 
 import config
 import searxng_client
 from fastmcp import FastMCP
+
+HOP_BY_HOP = frozenset(
+    [
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "host",
+    ]
+)
 
 logging.basicConfig(level=config.LOG_LEVEL, stream=sys.stderr)
 
@@ -127,14 +145,57 @@ async def fetch_url(url: str) -> str:
 
 _TransportLiteral = Literal["stdio", "http", "sse", "streamable-http"]
 
-if __name__ == "__main__":
+
+async def _proxy(request: Request) -> Response:
+    path = request.path_params.get("path", "")
+    target_url = config.SEARXNG_URL.rstrip("/") + "/" + path
+    if request.url.query:
+        target_url += "?" + request.url.query
+
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    body = await request.body()
+
+    resp = await searxng_client._fetch_client.request(
+        method=request.method,
+        url=target_url,
+        headers=headers,
+        content=body,
+        follow_redirects=True,
+    )
+
+    resp_headers = {
+        k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP
+    }
+    return Response(
+        content=resp.content, status_code=resp.status_code, headers=resp_headers
+    )
+
+
+if config.TRANSPORT in ("http", "streamable-http", "sse"):
+    mcp.custom_route("/", methods=["GET", "POST", "HEAD"])(_proxy)
+    mcp.custom_route("/{path:path}", methods=["GET", "POST", "HEAD", "OPTIONS"])(_proxy)
+
+
+async def _run() -> None:
     transport = cast(_TransportLiteral, config.TRANSPORT)
-    if config.TRANSPORT in ("http", "streamable-http"):
-        mcp.run(
-            transport=transport,
-            host=config.MCP_HOST,
-            port=config.MCP_PORT,
-            path=config.MCP_PATH,
-        )
-    else:
-        mcp.run(transport=transport)
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGTERM, loop.stop)
+    try:
+        if config.TRANSPORT in ("http", "streamable-http"):
+            await mcp.run_async(
+                transport=transport,
+                host=config.MCP_HOST,
+                port=config.MCP_PORT,
+                path=config.MCP_PATH,
+            )
+        else:
+            await mcp.run_async(transport=transport)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(_run())
+    except (KeyboardInterrupt, SystemExit):
+        pass

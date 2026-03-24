@@ -9,10 +9,13 @@ Run via:
   make test-all
 """
 
+import http.client
 import json
 import socket
 import subprocess
 import time
+
+import pytest
 
 
 def _send(proc: subprocess.Popen, message: dict) -> None:
@@ -185,8 +188,6 @@ def test_http_transport_e2e():
         # Send an MCP initialize request. FastMCP HTTP transport responds with SSE
         # (text/event-stream). We use http.client directly to read chunked SSE data.
         # Retry briefly: the port opens before uvicorn finishes app startup.
-        import http.client
-
         payload = json.dumps(
             {
                 "jsonrpc": "2.0",
@@ -244,6 +245,113 @@ def test_http_transport_e2e():
         assert (
             msg.get("result", {}).get("serverInfo", {}).get("name") == "searxng-mcp"
         ), f"Unexpected server name in HTTP initialize response: {msg}"
+
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+@pytest.mark.timeout(60)
+def test_startup_time():
+    """Measure wall-clock time from docker run to MCP HTTP endpoint readiness."""
+    container_id = (
+        subprocess.check_output(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-d",
+                "-e",
+                "TRANSPORT=http",
+                "-p",
+                "0:8000",
+                "searxng-mcp:latest",
+            ]
+        )
+        .decode()
+        .strip()
+    )
+
+    try:
+        port_info = (
+            subprocess.check_output(["docker", "port", container_id, "8000"])
+            .decode()
+            .strip()
+        )
+        port = int(port_info.split(":")[-1])
+
+        start = time.monotonic()
+        deadline = start + 30.0
+
+        while time.monotonic() < deadline:
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+                conn.request("GET", "/healthz")
+                resp = conn.getresponse()
+                conn.close()
+                if resp.status == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.1)
+
+        elapsed = time.monotonic() - start
+        assert elapsed < 10.0, f"Startup took {elapsed:.1f}s (expected < 10s)"
+
+    finally:
+        subprocess.run(["docker", "stop", container_id], capture_output=True)
+
+
+def test_proxy_e2e():
+    """E2E: in HTTP transport mode the transparent proxy forwards /healthz to SearXNG."""
+    host = "127.0.0.1"
+    port = 18001  # distinct port to avoid conflicts with test_http_transport_e2e
+    proc = subprocess.Popen(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-p",
+            f"{port}:8000",
+            "-e",
+            "TRANSPORT=http",
+            "searxng-mcp:latest",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    try:
+        _wait_for_port(host, port, timeout=120.0)
+
+        resp = None
+        deadline = time.monotonic() + 30.0
+        last_exc: Exception = RuntimeError("Never attempted")
+        while time.monotonic() < deadline:
+            try:
+                conn = http.client.HTTPConnection(host, port, timeout=10)
+                conn.request("GET", "/healthz")
+                resp = conn.getresponse()
+                break
+            except (
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                OSError,
+            ) as exc:
+                last_exc = exc
+                conn.close()
+                time.sleep(0.5)
+
+        if resp is None:
+            raise RuntimeError(f"Proxy never responded: {last_exc}") from last_exc
+
+        assert resp.status == 200, (
+            f"Expected 200 from /healthz proxy, got {resp.status}"
+        )
+        body = resp.read(512).decode(errors="replace")
+        conn.close()
+        assert "OK" in body, f"Expected 'OK' in /healthz body, got: {body!r}"
 
     finally:
         proc.kill()

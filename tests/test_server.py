@@ -5,13 +5,22 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 import config
+import searxng_client
 import server
-from server import SearchResponse, SearchResult, search_web, fetch_url
+from server import (
+    SearchResponse,
+    SearchResult,
+    search_web,
+    fetch_url,
+    _proxy,
+    HOP_BY_HOP,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -281,3 +290,93 @@ async def test_search_web_no_score_field():
         result = await search_web(query="test")
     assert result.results[0].score is None
     assert "[score:" not in str(result)
+
+
+# ---------------------------------------------------------------------------
+# HOP_BY_HOP constant
+# ---------------------------------------------------------------------------
+
+
+def test_hop_by_hop_constant():
+    for header in ("connection", "host", "transfer-encoding", "upgrade"):
+        assert header in HOP_BY_HOP
+
+
+# ---------------------------------------------------------------------------
+# _proxy — unit tests (no live SearXNG)
+# ---------------------------------------------------------------------------
+
+
+def _make_request(
+    path_params: dict, query: str = "", method: str = "GET", headers: dict | None = None
+) -> MagicMock:
+    req = MagicMock()
+    req.path_params = path_params
+    req.url.query = query
+    req.method = method
+    req.headers.items.return_value = (headers or {}).items()
+    req.body = AsyncMock(return_value=b"")
+    return req
+
+
+@pytest.mark.asyncio
+async def test_proxy_forwards_request():
+    mock_resp = httpx.Response(200, content=b"ok")
+    req = _make_request({"path": "search"}, query="q=test")
+
+    with patch.object(searxng_client, "_fetch_client") as mock_client:
+        mock_client.request = AsyncMock(return_value=mock_resp)
+        result = await _proxy(req)
+
+    assert result.status_code == 200
+    assert result.body == b"ok"
+
+
+@pytest.mark.asyncio
+async def test_proxy_strips_hop_by_hop_headers():
+    hop_headers = {
+        "transfer-encoding": "chunked",
+        "connection": "keep-alive",
+        "host": "example.com",
+        "x-custom": "keep",
+    }
+    mock_resp = httpx.Response(200, content=b"", headers=hop_headers)
+    req = _make_request({"path": "search"})
+
+    with patch.object(searxng_client, "_fetch_client") as mock_client:
+        mock_client.request = AsyncMock(return_value=mock_resp)
+        result = await _proxy(req)
+
+    result_header_keys = {k.lower() for k in result.headers.keys()}
+    for hop in ("transfer-encoding", "connection", "host"):
+        assert hop not in result_header_keys
+    assert "x-custom" in result_header_keys
+
+
+@pytest.mark.asyncio
+async def test_proxy_root_path():
+    mock_resp = httpx.Response(200, content=b"root")
+    req = _make_request({})  # empty path_params — root route
+
+    with patch.object(searxng_client, "_fetch_client") as mock_client:
+        mock_client.request = AsyncMock(return_value=mock_resp)
+        await _proxy(req)
+
+    call_kwargs = mock_client.request.call_args
+    called_url: str = call_kwargs.kwargs["url"]
+    assert called_url == config.SEARXNG_URL.rstrip("/") + "/"
+    assert "//" not in called_url.replace("://", "")
+
+
+@pytest.mark.asyncio
+async def test_proxy_passes_query_string():
+    mock_resp = httpx.Response(200, content=b"")
+    req = _make_request({"path": "search"}, query="q=hello&format=json")
+
+    with patch.object(searxng_client, "_fetch_client") as mock_client:
+        mock_client.request = AsyncMock(return_value=mock_resp)
+        await _proxy(req)
+
+    call_kwargs = mock_client.request.call_args
+    called_url: str = call_kwargs.kwargs["url"]
+    assert called_url.endswith("?q=hello&format=json")

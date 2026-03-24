@@ -27,8 +27,9 @@ RUN python3 -m ensurepip \
 # Copy MCP server source, SearXNG config, and entrypoint
 COPY src/ /app/src/
 COPY config/settings.yml /etc/searxng/settings.yml
+COPY config/limiter.toml /etc/searxng/limiter.toml
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chown searxng:searxng /etc/searxng/settings.yml \
+RUN chown searxng:searxng /etc/searxng/settings.yml /etc/searxng/limiter.toml \
     && chmod +x /entrypoint.sh
 
 # Environment defaults (overridable at docker run time)
@@ -37,6 +38,9 @@ ENV LOG_LEVEL=WARNING
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=8000
 ENV MCP_PATH=/mcp/
+ENV SEARXNG_URL=http://127.0.0.1:8080
+ENV SEARXNG_TIMEOUT=30.0
+ENV SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
 
 # Port exposed only when TRANSPORT=http (ignored in stdio mode)
 EXPOSE 8000
