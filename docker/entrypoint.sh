@@ -8,17 +8,16 @@ VENV=/usr/local/searxng/.venv
 SEARXNG_SETTINGS_PATH=${SEARXNG_SETTINGS_PATH:-/etc/searxng/settings.yml}
 SEARXNG_URL=${SEARXNG_URL:-http://127.0.0.1:8080}
 
-# Ensure settings file exists (official image creates it from template if missing)
+# Fail fast if settings file is missing (Dockerfile COPYs it; fallback to
+# upstream defaults would break the server — missing formats: [html, json])
 if [ ! -f "$SEARXNG_SETTINGS_PATH" ]; then
-    cp -f /usr/local/searxng/searx/settings.yml "$SEARXNG_SETTINGS_PATH"
-    echo "Created settings from template: $SEARXNG_SETTINGS_PATH" >&2
+    echo "ERROR: Settings file not found: $SEARXNG_SETTINGS_PATH" >&2
+    exit 1
 fi
 
-# Generate a random secret key if using the placeholder
-if grep -q "searxng-mcp-secret-change-in-prod" "$SEARXNG_SETTINGS_PATH" 2>/dev/null; then
-    RANDOM_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-    sed -i "s/searxng-mcp-secret-change-in-prod/$RANDOM_KEY/" "$SEARXNG_SETTINGS_PATH"
-fi
+# Generate a random secret key on every container start
+RANDOM_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+sed -i "s/secret_key:.*/secret_key: \"$RANDOM_KEY\"/" "$SEARXNG_SETTINGS_PATH"
 
 # Launch SearXNG via granian in the background.
 # Redirect granian's stdout to stderr so it doesn't pollute the MCP STDIO stream.

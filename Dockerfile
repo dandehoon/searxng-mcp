@@ -21,14 +21,11 @@ RUN PYLIB=$(python3 -c "import sysconfig; print(sysconfig.get_path('purelib'))")
         "$PYLIB/pip" \
         "$PYLIB/pip-"*.dist-info \
         "$PYLIB/uv" \
-        "$PYLIB/uv-"*.dist-info \
-    && find /usr/local/searxng/.venv -type d -name "__pycache__" -exec rm -rf {} + \
-    && find /usr/local/searxng/.venv -type d -name "tests" -exec rm -rf {} +
+        "$PYLIB/uv-"*.dist-info
 
 # Copy MCP server source, SearXNG config, and entrypoint
 COPY src/ /app/src/
 COPY --chown=searxng:searxng config/settings.yml /etc/searxng/settings.yml
-COPY --chown=searxng:searxng config/limiter.toml /etc/searxng/limiter.toml
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

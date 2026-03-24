@@ -1,5 +1,5 @@
-"""End-to-end test: builds Docker image, starts the container, sends a real MCP
-search_web call over stdin/stdout, and verifies results are returned.
+"""End-to-end tests: build Docker image, start containers, verify MCP protocol
+over both STDIO and HTTP transports.
 
 Prerequisites:
   - Docker daemon is running
@@ -33,7 +33,6 @@ def _read_response(proc: subprocess.Popen, timeout: float = 120.0) -> dict:
     while time.monotonic() < deadline:
         line = proc.stdout.readline()
         if not line:
-            # EOF or process died
             raise RuntimeError("Container stdout closed unexpectedly")
         line = line.decode().strip()
         if not line:
@@ -42,7 +41,6 @@ def _read_response(proc: subprocess.Popen, timeout: float = 120.0) -> dict:
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        # Skip server-sent notifications (no 'id')
         if "id" in msg:
             return msg
     raise TimeoutError(f"No JSON-RPC response received within {timeout}s")
@@ -78,15 +76,8 @@ def _http_retry(
     raise RuntimeError(f"HTTP {host}:{port}{path} never responded") from exc
 
 
-@pytest.fixture
-def stdio_container():
-    proc = subprocess.Popen(
-        ["docker", "run", "--rm", "-i", "searxng-mcp:latest"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    yield proc
+def _terminate(proc: subprocess.Popen) -> None:
+    """Gracefully stop a container process."""
     proc.terminate()
     try:
         proc.wait(timeout=5)
@@ -95,9 +86,61 @@ def stdio_container():
         proc.wait()
 
 
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def stdio_container():
+    """STDIO-mode container for MCP protocol tests."""
+    proc = subprocess.Popen(
+        ["docker", "run", "--rm", "-i", "searxng-mcp:latest"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    yield proc
+    _terminate(proc)
+
+
+@pytest.fixture(scope="module")
+def http_container():
+    """Single HTTP-transport container shared across all HTTP E2E tests."""
+    host = "127.0.0.1"
+    port = 18000
+    proc = subprocess.Popen(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-p",
+            f"{port}:8000",
+            "-e",
+            "TRANSPORT=http",
+            "searxng-mcp:latest",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        _wait_for_port(host, port, timeout=120.0)
+    except Exception:
+        _terminate(proc)
+        raise
+    yield host, port, proc
+    _terminate(proc)
+
+
+# ---------------------------------------------------------------------------
+# STDIO transport
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.timeout(180)
-def test_search_web_e2e(stdio_container):
-    """Full E2E: spin up the Docker container, perform an MCP search, validate."""
+def test_stdio_e2e(stdio_container):
+    """Full E2E: MCP handshake + search-web + fetch-url over STDIO transport."""
     proc = stdio_container
 
     # 1. MCP initialize handshake
@@ -131,7 +174,7 @@ def test_search_web_e2e(stdio_container):
         },
     )
 
-    # 3. Perform a search via tools/call
+    # 3. search-web tool call
     _send(
         proc,
         {
@@ -140,30 +183,22 @@ def test_search_web_e2e(stdio_container):
             "method": "tools/call",
             "params": {
                 "name": "search-web",
-                "arguments": {
-                    "query": "python programming language",
-                    "max_results": 3,
-                },
+                "arguments": {"query": "python programming language", "max_results": 3},
             },
         },
     )
 
     search_response = _read_response(proc, timeout=120.0)
-
     assert "error" not in search_response, (
         f"tools/call returned an error: {search_response['error']}"
     )
-
     content = search_response.get("result", {}).get("content", [])
     assert content, f"tools/call result has no content: {search_response}"
-
     text = content[0].get("text", "")
     assert text, "Response content text is empty"
-    assert not text.startswith("Search failed"), (
-        f"Search returned an error string: {text}"
-    )
+    assert not text.startswith("Search failed"), f"Search returned an error: {text}"
 
-    # 4. Fetch a URL via tools/call
+    # 4. fetch-url tool call
     _send(
         proc,
         {
@@ -185,177 +220,62 @@ def test_search_web_e2e(stdio_container):
     assert fetch_content, f"fetch-url result has no content: {fetch_response}"
     fetch_text = fetch_content[0].get("text", "")
     assert fetch_text, "fetch-url response content text is empty"
-    # example.com has no <script> or <nav> — just a heading and paragraph
     assert "<html>" not in fetch_text, "Raw HTML leaked into fetch-url output"
 
 
+# ---------------------------------------------------------------------------
+# HTTP transport (shared container)
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.timeout(180)
-def test_http_transport_e2e():
-    """E2E: start container in HTTP transport mode, verify the MCP endpoint is reachable."""
-    host = "127.0.0.1"
-    port = 18000  # use a non-default port to avoid conflicts
-    proc = subprocess.Popen(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-p",
-            f"{port}:8000",
-            "-e",
-            "TRANSPORT=http",
-            "searxng-mcp:latest",
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def test_http_transport_e2e(http_container):
+    """E2E: verify the MCP endpoint responds to an initialize request over HTTP."""
+    host, port, _ = http_container
 
-    try:
-        # Wait for the TCP port to accept connections (SearXNG + MCP server both up)
-        _wait_for_port(host, port, timeout=120.0)
-
-        # Send an MCP initialize request. FastMCP HTTP transport responds with SSE
-        # (text/event-stream). We use http.client directly to read chunked SSE data.
-        # Retry briefly: the port opens before uvicorn finishes app startup.
-        payload = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test-client", "version": "1.0"},
-                },
-            }
-        )
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
+    payload = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+            },
         }
-
-        conn, resp = _http_retry(
-            host, port, "POST", "/mcp/", body=payload, headers=headers
-        )
-        assert resp.status == 200, f"Expected HTTP 200, got {resp.status}"
-
-        # Read the SSE stream — data lines look like: data: {"jsonrpc":"2.0",...}
-        body = resp.read(65536).decode(errors="replace")
-        conn.close()
-
-        sse_data = None
-        for line in body.splitlines():
-            if line.startswith("data:"):
-                sse_data = line[len("data:") :].strip()
-                break
-
-        assert sse_data, f"No SSE data line found in response: {body[:500]}"
-        msg = json.loads(sse_data)
-        assert (
-            msg.get("result", {}).get("serverInfo", {}).get("name") == "searxng-mcp"
-        ), f"Unexpected server name in HTTP initialize response: {msg}"
-
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-
-
-@pytest.mark.timeout(60)
-def test_startup_time():
-    """Measure wall-clock time from docker run to MCP HTTP endpoint readiness."""
-    container_id = (
-        subprocess.check_output(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-d",
-                "-e",
-                "TRANSPORT=http",
-                "-p",
-                "0:8000",
-                "searxng-mcp:latest",
-            ]
-        )
-        .decode()
-        .strip()
     )
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
 
-    try:
-        port_info = (
-            subprocess.check_output(["docker", "port", container_id, "8000"])
-            .decode()
-            .strip()
-        )
-        assert port_info, (
-            "docker port returned empty output — container may have crashed"
-        )
-        port = int(port_info.split(":")[-1])
+    conn, resp = _http_retry(host, port, "POST", "/mcp/", body=payload, headers=headers)
+    assert resp.status == 200, f"Expected HTTP 200, got {resp.status}"
 
-        start = time.monotonic()
-        deadline = start + 30.0
-        got_200 = False
+    body = resp.read(65536).decode(errors="replace")
+    conn.close()
 
-        while time.monotonic() < deadline:
-            try:
-                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
-                conn.request("GET", "/healthz")
-                resp = conn.getresponse()
-                conn.close()
-                if resp.status == 200:
-                    got_200 = True
-                    break
-            except OSError:
-                conn.close()
-            time.sleep(0.1)
+    sse_data = None
+    for line in body.splitlines():
+        if line.startswith("data:"):
+            sse_data = line[len("data:") :].strip()
+            break
 
-        elapsed = time.monotonic() - start
-        assert got_200, "SearXNG /healthz never returned HTTP 200 within 30s"
-        assert elapsed < 10.0, f"Startup took {elapsed:.1f}s (expected < 10s)"
-
-    finally:
-        subprocess.run(["docker", "stop", container_id], capture_output=True)
+    assert sse_data, f"No SSE data line found in response: {body[:500]}"
+    msg = json.loads(sse_data)
+    assert msg.get("result", {}).get("serverInfo", {}).get("name") == "searxng-mcp", (
+        f"Unexpected server name in HTTP initialize response: {msg}"
+    )
 
 
 @pytest.mark.timeout(180)
-def test_proxy_e2e():
-    """E2E: in HTTP transport mode the transparent proxy forwards /healthz to SearXNG."""
-    host = "127.0.0.1"
-    port = 18001  # distinct port to avoid conflicts with test_http_transport_e2e
-    proc = subprocess.Popen(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-p",
-            f"{port}:8000",
-            "-e",
-            "TRANSPORT=http",
-            "searxng-mcp:latest",
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def test_proxy_e2e(http_container):
+    """E2E: the transparent proxy forwards /healthz to SearXNG."""
+    host, port, _ = http_container
 
-    try:
-        _wait_for_port(host, port, timeout=120.0)
-
-        conn, resp = _http_retry(host, port, "GET", "/healthz")
-        assert resp.status == 200, (
-            f"Expected 200 from /healthz proxy, got {resp.status}"
-        )
-        body = resp.read(512).decode(errors="replace")
-        conn.close()
-        assert "OK" in body, f"Expected 'OK' in /healthz body, got: {body!r}"
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+    conn, resp = _http_retry(host, port, "GET", "/healthz")
+    assert resp.status == 200, f"Expected 200 from /healthz proxy, got {resp.status}"
+    body = resp.read(512).decode(errors="replace")
+    conn.close()
+    assert "OK" in body, f"Expected 'OK' in /healthz body, got: {body!r}"

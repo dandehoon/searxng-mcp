@@ -7,7 +7,6 @@ import logging
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Literal, cast
 
 import httpx
 from bs4 import BeautifulSoup
@@ -35,6 +34,8 @@ HOP_BY_HOP = frozenset(
     }
 )
 
+_VALID_TRANSPORTS = frozenset({"stdio", "http", "streamable-http"})
+
 logging.basicConfig(level=config.LOG_LEVEL, stream=sys.stderr)
 
 
@@ -44,7 +45,7 @@ async def lifespan(server: FastMCP):
     search_client = httpx.AsyncClient(timeout=config.SEARXNG_TIMEOUT)
     fetch_client = httpx.AsyncClient(
         timeout=config.FETCH_TIMEOUT,
-        headers=searxng_client.FETCH_HEADERS,
+        headers=config.FETCH_HEADERS,
     )
     try:
         searxng_client.init(search_client, fetch_client)
@@ -146,9 +147,6 @@ async def fetch_url(url: str) -> str:
     return markdownify(str(soup))
 
 
-_TransportLiteral = Literal["stdio", "http", "sse", "streamable-http"]
-
-
 def _build_target_url(request: Request) -> str:
     path = request.path_params.get("path", "")
     url = config.SEARXNG_URL + "/" + path
@@ -178,8 +176,11 @@ def _register_routes() -> None:
 
 
 async def _run() -> None:
-    transport = cast(_TransportLiteral, config.TRANSPORT)
-    is_http = config.TRANSPORT in ("http", "streamable-http", "sse")
+    if config.TRANSPORT not in _VALID_TRANSPORTS:
+        raise ValueError(
+            f"Unknown TRANSPORT={config.TRANSPORT!r}, must be one of {sorted(_VALID_TRANSPORTS)}"
+        )
+    is_http = config.TRANSPORT in ("http", "streamable-http")
     if is_http:
         _register_routes()
     loop = asyncio.get_running_loop()
@@ -187,13 +188,13 @@ async def _run() -> None:
     try:
         if is_http:
             await mcp.run_async(
-                transport=transport,
+                transport=config.TRANSPORT,  # type: ignore[arg-type]
                 host=config.MCP_HOST,
                 port=config.MCP_PORT,
                 path=config.MCP_PATH,
             )
         else:
-            await mcp.run_async(transport=transport)
+            await mcp.run_async(transport=config.TRANSPORT)  # type: ignore[arg-type]
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
 

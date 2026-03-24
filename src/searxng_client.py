@@ -8,12 +8,6 @@ import config
 _search_client: httpx.AsyncClient | None = None
 _fetch_client: httpx.AsyncClient | None = None
 
-FETCH_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (compatible; searxng-mcp/1.0; +https://github.com/searxng/searxng-mcp)"
-    )
-}
-
 
 def init(search_client: httpx.AsyncClient, fetch_client: httpx.AsyncClient) -> None:
     """Called once at server startup to set the shared HTTP clients."""

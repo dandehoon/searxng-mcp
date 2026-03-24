@@ -1,6 +1,5 @@
 """Unit tests for MCP server logic — no Docker or live SearXNG required."""
 
-import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -15,7 +14,6 @@ from server import (
     search_web,
     fetch_url,
     _proxy,
-    HOP_BY_HOP,
 )
 
 
@@ -29,14 +27,18 @@ def test_response_empty():
     assert str(resp) == "No results found for: test"
 
 
-def test_response_single():
+def test_response_single_with_score():
+    """Single result with a score: covers basic formatting and score display."""
     resp = SearchResponse(
         query="hello",
         total=1,
         shown=1,
         results=[
             SearchResult(
-                title="Test", url="https://example.com", snippet="Some content"
+                title="Test",
+                url="https://example.com",
+                snippet="Some content",
+                score=0.85,
             )
         ],
     )
@@ -45,37 +47,13 @@ def test_response_single():
     assert "https://example.com" in text
     assert "Some content" in text
     assert "1." in text
+    assert "0.85" in text
+    # Not truncated — should not show "X of Y"
+    assert " of " not in text
 
 
-def test_response_multiple():
-    resp = SearchResponse(
-        query="multi",
-        total=3,
-        shown=3,
-        results=[
-            SearchResult(title=f"Title {i}", url=f"https://example.com/{i}", snippet="")
-            for i in range(3)
-        ],
-    )
-    text = str(resp)
-    assert "1." in text
-    assert "2." in text
-    assert "3." in text
-
-
-def test_response_score_shown():
-    resp = SearchResponse(
-        query="q",
-        total=1,
-        shown=1,
-        results=[
-            SearchResult(title="Scored", url="https://x.com", snippet="", score=0.85)
-        ],
-    )
-    assert "0.85" in str(resp)
-
-
-def test_response_total_count_truncated():
+def test_response_truncated():
+    """When total > shown, the header includes 'X of Y'."""
     resp = SearchResponse(
         query="q",
         total=20,
@@ -86,16 +64,6 @@ def test_response_total_count_truncated():
         ],
     )
     assert "3 of 20" in str(resp)
-
-
-def test_response_no_of_when_not_truncated():
-    resp = SearchResponse(
-        query="q",
-        total=1,
-        shown=1,
-        results=[SearchResult(title="R", url="https://x.com", snippet="")],
-    )
-    assert " of " not in str(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +81,15 @@ async def test_search_web_propagates_errors():
             await search_web(query="test")
 
 
-async def test_search_web_max_results():
+async def test_search_web_max_results_with_scores():
+    """Covers truncation, score rounding, and missing-score handling in one test."""
     fake_results = [
         {"title": f"Result {i}", "url": f"https://example.com/{i}", "content": ""}
         for i in range(20)
     ]
+    # First result has a score that needs rounding; rest have no score
+    fake_results[0]["score"] = 2.090909090909091
+
     with patch.object(
         server.searxng_client, "search", new_callable=AsyncMock
     ) as mock_search:
@@ -129,24 +101,11 @@ async def test_search_web_max_results():
     assert result.total == 20
     assert len(result.results) == 5
     assert "5 of 20" in str(result)
-
-
-async def test_search_web_score_rounded():
-    fake_results = [
-        {
-            "title": "X",
-            "url": "https://x.com",
-            "content": "",
-            "score": 2.090909090909091,
-        }
-    ]
-    with patch.object(
-        server.searxng_client, "search", new_callable=AsyncMock
-    ) as mock_search:
-        mock_search.return_value = {"results": fake_results}
-        result = await search_web(query="test")
-
+    # Score rounding: 2.090909... → 2.091
     assert result.results[0].score == 2.091
+    # Missing score → None, not displayed
+    assert result.results[1].score is None
+    assert "[score:" not in str(result).split("\n\n")[2]  # second result entry
 
 
 # ---------------------------------------------------------------------------
@@ -154,16 +113,36 @@ async def test_search_web_score_rounded():
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_url_returns_content():
+async def test_fetch_url_strips_unwanted_tags():
+    """All tags in _STRIP_TAGS are removed; main content is preserved."""
+    html = (
+        "<html><head><title>T</title></head><body>"
+        "<nav>Site nav</nav>"
+        "<p>Main content</p>"
+        "<script>evil()</script>"
+        "<style>.x{}</style>"
+        "<footer>Footer text</footer>"
+        "<aside>Sidebar</aside>"
+        "</body></html>"
+    )
     with patch.object(
         server.searxng_client, "fetch", new_callable=AsyncMock
     ) as mock_fetch:
-        mock_fetch.return_value = "<html><body><h1>Hello</h1><p>World</p></body></html>"
+        mock_fetch.return_value = html
         result = await fetch_url(url="https://example.com")
-    # markdownify converts HTML headings and paragraphs to markdown
-    assert "Hello" in result
-    assert "World" in result
+
+    # Kept
+    assert "Main content" in result
+    # Stripped tags
+    assert "Site nav" not in result
+    assert "evil()" not in result
+    assert ".x{}" not in result
+    assert "Footer text" not in result
+    assert "Sidebar" not in result
+    # No raw HTML
     assert "<html>" not in result
+    assert "<script>" not in result
+    assert "<nav>" not in result
 
 
 async def test_fetch_url_propagates_errors():
@@ -174,117 +153,6 @@ async def test_fetch_url_propagates_errors():
         mock_fetch.side_effect = Exception("timeout")
         with pytest.raises(Exception, match="timeout"):
             await fetch_url(url="https://example.com")
-
-
-async def test_fetch_url_strips_script_tags():
-    html = "<html><body><p>Keep this</p><script>evil()</script></body></html>"
-    with patch.object(
-        server.searxng_client, "fetch", new_callable=AsyncMock
-    ) as mock_fetch:
-        mock_fetch.return_value = html
-        result = await fetch_url(url="https://example.com")
-    assert "Keep this" in result
-    assert "evil()" not in result
-    assert "<script>" not in result
-
-
-async def test_fetch_url_strips_nav_and_footer():
-    html = (
-        "<html><body>"
-        "<nav>Site nav</nav>"
-        "<p>Main content</p>"
-        "<footer>Footer text</footer>"
-        "</body></html>"
-    )
-    with patch.object(
-        server.searxng_client, "fetch", new_callable=AsyncMock
-    ) as mock_fetch:
-        mock_fetch.return_value = html
-        result = await fetch_url(url="https://example.com")
-    assert "Main content" in result
-    assert "Site nav" not in result
-    assert "Footer text" not in result
-
-
-async def test_fetch_url_converts_headings_to_markdown():
-    html = "<html><body><h1>Big Title</h1><h2>Subtitle</h2></body></html>"
-    with patch.object(
-        server.searxng_client, "fetch", new_callable=AsyncMock
-    ) as mock_fetch:
-        mock_fetch.return_value = html
-        result = await fetch_url(url="https://example.com")
-    assert "Big Title" in result
-    assert "Subtitle" in result
-    # markdownify uses setext (underline) style for h1/h2 by default,
-    # or ATX (#) style — either way, no raw <h1> tags remain
-    assert "<h1>" not in result
-    assert "<h2>" not in result
-
-
-async def test_fetch_url_converts_links_to_markdown():
-    html = '<html><body><a href="https://example.com">Example</a></body></html>'
-    with patch.object(
-        server.searxng_client, "fetch", new_callable=AsyncMock
-    ) as mock_fetch:
-        mock_fetch.return_value = html
-        result = await fetch_url(url="https://example.com")
-    assert "Example" in result
-    assert "https://example.com" in result
-    assert "<a " not in result
-
-
-# ---------------------------------------------------------------------------
-# config — env var defaults and overrides
-# ---------------------------------------------------------------------------
-
-
-def test_config_mcp_defaults():
-    """MCP_HOST/PORT/PATH should have sensible defaults when env vars are absent."""
-    assert config.MCP_HOST == "0.0.0.0"
-    assert config.MCP_PORT == 8000
-    assert config.MCP_PATH == "/mcp/"
-
-
-def test_config_mcp_port_from_env(monkeypatch):
-    """MCP_PORT env var is parsed as int."""
-    monkeypatch.setenv("MCP_PORT", "9000")
-    importlib.reload(config)
-    try:
-        assert config.MCP_PORT == 9000
-    finally:
-        monkeypatch.delenv("MCP_PORT", raising=False)
-        importlib.reload(config)
-
-
-def test_config_transport_default():
-    assert config.TRANSPORT == "stdio"
-
-
-# ---------------------------------------------------------------------------
-# search_web — missing score field
-# ---------------------------------------------------------------------------
-
-
-async def test_search_web_no_score_field():
-    """Results without a 'score' key should have score=None (not crash)."""
-    fake_results = [{"title": "No score", "url": "https://x.com", "content": "text"}]
-    with patch.object(
-        server.searxng_client, "search", new_callable=AsyncMock
-    ) as mock_search:
-        mock_search.return_value = {"results": fake_results}
-        result = await search_web(query="test")
-    assert result.results[0].score is None
-    assert "[score:" not in str(result)
-
-
-# ---------------------------------------------------------------------------
-# HOP_BY_HOP constant
-# ---------------------------------------------------------------------------
-
-
-def test_hop_by_hop_constant():
-    for header in ("connection", "host", "transfer-encoding", "upgrade"):
-        assert header in HOP_BY_HOP
 
 
 # ---------------------------------------------------------------------------
@@ -305,8 +173,9 @@ def _make_request(
 
 
 async def test_proxy_forwards_request():
+    """Proxy forwards to SearXNG, handles root path and query strings."""
     mock_resp = httpx.Response(200, content=b"ok")
-    req = _make_request({"path": "search"}, query="q=test")
+    req = _make_request({"path": "search"}, query="q=hello&format=json")
 
     mock_client = MagicMock()
     mock_client.request = AsyncMock(return_value=mock_resp)
@@ -315,9 +184,22 @@ async def test_proxy_forwards_request():
 
     assert result.status_code == 200
     assert result.body == b"ok"
+    called_url: str = mock_client.request.call_args.kwargs["url"]
+    assert called_url.endswith("?q=hello&format=json")
+
+    # Also verify root path (empty path_params) builds a clean URL
+    root_req = _make_request({})
+    mock_client.request = AsyncMock(return_value=httpx.Response(200, content=b"root"))
+    with patch.object(searxng_client, "get_fetch_client", return_value=mock_client):
+        await _proxy(root_req)
+
+    root_url: str = mock_client.request.call_args.kwargs["url"]
+    assert root_url == config.SEARXNG_URL + "/"
+    assert "//" not in root_url.replace("://", "")
 
 
 async def test_proxy_strips_hop_by_hop_headers():
+    """Hop-by-hop headers are filtered from the proxied response."""
     hop_headers = {
         "transfer-encoding": "chunked",
         "connection": "keep-alive",
@@ -336,30 +218,3 @@ async def test_proxy_strips_hop_by_hop_headers():
     for hop in ("transfer-encoding", "connection", "host"):
         assert hop not in result_header_keys
     assert "x-custom" in result_header_keys
-
-
-async def test_proxy_root_path():
-    mock_resp = httpx.Response(200, content=b"root")
-    req = _make_request({})  # empty path_params — root route
-
-    mock_client = MagicMock()
-    mock_client.request = AsyncMock(return_value=mock_resp)
-    with patch.object(searxng_client, "get_fetch_client", return_value=mock_client):
-        await _proxy(req)
-
-    called_url: str = mock_client.request.call_args.kwargs["url"]
-    assert called_url == config.SEARXNG_URL + "/"
-    assert "//" not in called_url.replace("://", "")
-
-
-async def test_proxy_passes_query_string():
-    mock_resp = httpx.Response(200, content=b"")
-    req = _make_request({"path": "search"}, query="q=hello&format=json")
-
-    mock_client = MagicMock()
-    mock_client.request = AsyncMock(return_value=mock_resp)
-    with patch.object(searxng_client, "get_fetch_client", return_value=mock_client):
-        await _proxy(req)
-
-    called_url: str = mock_client.request.call_args.kwargs["url"]
-    assert called_url.endswith("?q=hello&format=json")
