@@ -16,7 +16,7 @@ fi
 
 # Generate a random secret key if using the placeholder
 if grep -q "searxng-mcp-secret-change-in-prod" "$SEARXNG_SETTINGS_PATH" 2>/dev/null; then
-    RANDOM_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || date +%s%N)
+    RANDOM_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
     sed -i "s/searxng-mcp-secret-change-in-prod/$RANDOM_KEY/" "$SEARXNG_SETTINGS_PATH"
 fi
 
@@ -26,14 +26,14 @@ PYTHONPATH=/usr/local/searxng \
     SEARXNG_SETTINGS_PATH="$SEARXNG_SETTINGS_PATH" \
     "$VENV/bin/granian" --workers 1 --no-reload searx.webapp:app >&2 &
 
-# Wait for SearXNG to become ready (max 30 seconds)
+# Wait for SearXNG to become ready (max ~30 seconds with 0.1s polling)
 ATTEMPTS=0
 MAX_ATTEMPTS=300
 echo "Waiting for SearXNG to start..." >&2
-until wget -q -O /dev/null "${SEARXNG_URL}/healthz" 2>/dev/null; do
+until wget -q --timeout=2 -O /dev/null "${SEARXNG_URL}/healthz" 2>/dev/null; do
     ATTEMPTS=$((ATTEMPTS + 1))
     if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
-        echo "ERROR: SearXNG failed to start after 30 seconds" >&2
+        echo "ERROR: SearXNG did not respond at ${SEARXNG_URL}/healthz after $MAX_ATTEMPTS attempts" >&2
         exit 1
     fi
     sleep 0.1  # busybox ash supports fractional sleep

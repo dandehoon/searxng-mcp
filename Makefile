@@ -36,6 +36,6 @@ test-all: build
 	uv run pytest tests/test_e2e.py -v -s --timeout=180
 
 clean:
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name __pycache__ -delete 2>/dev/null || true
 	find . -name "*.pyc" -delete 2>/dev/null || true
-	docker rmi $(FULL_IMAGE) 2>/dev/null || true
+	docker rmi $(FULL_IMAGE) || true

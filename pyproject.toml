@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "MCP server that exposes SearXNG web search as a tool"
 requires-python = ">=3.12"
 dependencies = [
+    "beautifulsoup4>=4.12.0",
     "fastmcp>=2.0.0",
     "httpx>=0.27.0",
     "markdownify>=0.13.0",
@@ -29,3 +30,4 @@ packages = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["src"]

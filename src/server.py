@@ -19,7 +19,7 @@ import searxng_client
 from fastmcp import FastMCP
 
 HOP_BY_HOP = frozenset(
-    [
+    {
         "connection",
         "keep-alive",
         "proxy-authenticate",
@@ -29,7 +29,7 @@ HOP_BY_HOP = frozenset(
         "transfer-encoding",
         "upgrade",
         "host",
-    ]
+    }
 )
 
 logging.basicConfig(level=config.LOG_LEVEL, stream=sys.stderr)
@@ -43,8 +43,8 @@ async def lifespan(server: FastMCP):
         timeout=config.FETCH_TIMEOUT,
         headers=searxng_client.FETCH_HEADERS,
     )
-    searxng_client.init(search_client, fetch_client)
     try:
+        searxng_client.init(search_client, fetch_client)
         yield
     finally:
         await search_client.aclose()
@@ -91,7 +91,7 @@ class SearchResponse:
 
 
 @mcp.tool(name="search-web")
-async def search_web(
+async def search_web(  # noqa: PLR0913 — flat params required for MCP tool schema
     query: str,
     categories: str = "general",
     engines: str | None = None,
@@ -146,28 +146,27 @@ async def fetch_url(url: str) -> str:
 _TransportLiteral = Literal["stdio", "http", "sse", "streamable-http"]
 
 
-async def _proxy(request: Request) -> Response:
+def _build_target_url(request: Request) -> str:
     path = request.path_params.get("path", "")
-    target_url = config.SEARXNG_URL.rstrip("/") + "/" + path
+    url = config.SEARXNG_URL + "/" + path
     if request.url.query:
-        target_url += "?" + request.url.query
+        url += "?" + request.url.query
+    return url
 
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
-    body = await request.body()
 
-    resp = await searxng_client.proxy_request(
+def _filter_headers(headers) -> dict[str, str]:
+    return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP}
+
+
+async def _proxy(request: Request) -> Response:
+    resp = await searxng_client.get_fetch_client().request(
         method=request.method,
-        url=target_url,
-        headers=headers,
-        content=body,
+        url=_build_target_url(request),
+        headers=_filter_headers(request.headers),
+        content=await request.body(),
+        follow_redirects=True,
     )
-
-    resp_headers = {
-        k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP
-    }
-    return Response(
-        content=resp.content, status_code=resp.status_code, headers=resp_headers
-    )
+    return Response(resp.content, resp.status_code, _filter_headers(resp.headers))
 
 
 def _register_routes() -> None:
@@ -176,21 +175,19 @@ def _register_routes() -> None:
 
 
 async def _run() -> None:
-    if config.TRANSPORT in ("http", "streamable-http", "sse"):
-        _register_routes()
     transport = cast(_TransportLiteral, config.TRANSPORT)
+    is_http = config.TRANSPORT in ("http", "streamable-http", "sse")
+    if is_http:
+        _register_routes()
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGTERM, loop.stop)
     try:
-        if config.TRANSPORT in ("http", "streamable-http", "sse"):
-            await mcp.run_async(
-                transport=transport,
-                host=config.MCP_HOST,
-                port=config.MCP_PORT,
-                path=config.MCP_PATH,
-            )
-        else:
-            await mcp.run_async(transport=transport)
+        kwargs = (
+            dict(host=config.MCP_HOST, port=config.MCP_PORT, path=config.MCP_PATH)
+            if is_http
+            else {}
+        )
+        await mcp.run_async(transport=transport, **kwargs)
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
 

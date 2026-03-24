@@ -58,6 +58,24 @@ def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> None:
     raise TimeoutError(f"Port {host}:{port} did not open within {timeout}s")
 
 
+def _http_retry(
+    host: str, port: int, method: str, path: str, *, timeout: float = 30.0, **kwargs
+) -> http.client.HTTPResponse:
+    """Retry an HTTP request until it succeeds or the timeout expires."""
+    deadline = time.monotonic() + timeout
+    exc: Exception = OSError("Deadline passed before first attempt")
+    while time.monotonic() < deadline:
+        try:
+            conn = http.client.HTTPConnection(host, port, timeout=10)
+            conn.request(method, path, **kwargs)
+            return conn.getresponse()
+        except (http.client.RemoteDisconnected, ConnectionResetError, OSError) as e:
+            exc = e
+            conn.close()
+            time.sleep(0.5)
+    raise RuntimeError(f"HTTP {host}:{port}{path} never responded") from exc
+
+
 @pytest.fixture
 def stdio_container():
     proc = subprocess.Popen(
@@ -214,34 +232,11 @@ def test_http_transport_e2e():
             "Accept": "application/json, text/event-stream",
         }
 
-        resp = None
-        deadline = time.monotonic() + 30.0
-        last_exc: Exception = RuntimeError("Never attempted")
-        while time.monotonic() < deadline:
-            try:
-                conn = http.client.HTTPConnection(host, port, timeout=10)
-                conn.request("POST", "/mcp/", body=payload, headers=headers)
-                resp = conn.getresponse()
-                break
-            except (
-                http.client.RemoteDisconnected,
-                ConnectionResetError,
-                OSError,
-            ) as exc:
-                last_exc = exc
-                conn.close()
-                time.sleep(0.5)
-
-        if resp is None:
-            raise RuntimeError(
-                f"HTTP MCP endpoint never responded: {last_exc}"
-            ) from last_exc
-
+        resp = _http_retry(host, port, "POST", "/mcp/", body=payload, headers=headers)
         assert resp.status == 200, f"Expected HTTP 200, got {resp.status}"
 
         # Read the SSE stream — data lines look like: data: {"jsonrpc":"2.0",...}
         body = resp.read(65536).decode(errors="replace")
-        conn.close()
 
         sse_data = None
         for line in body.splitlines():
@@ -342,32 +337,11 @@ def test_proxy_e2e():
     try:
         _wait_for_port(host, port, timeout=120.0)
 
-        resp = None
-        deadline = time.monotonic() + 30.0
-        last_exc: Exception = RuntimeError("Never attempted")
-        while time.monotonic() < deadline:
-            try:
-                conn = http.client.HTTPConnection(host, port, timeout=10)
-                conn.request("GET", "/healthz")
-                resp = conn.getresponse()
-                break
-            except (
-                http.client.RemoteDisconnected,
-                ConnectionResetError,
-                OSError,
-            ) as exc:
-                last_exc = exc
-                conn.close()
-                time.sleep(0.5)
-
-        if resp is None:
-            raise RuntimeError(f"Proxy never responded: {last_exc}") from last_exc
-
+        resp = _http_retry(host, port, "GET", "/healthz")
         assert resp.status == 200, (
             f"Expected 200 from /healthz proxy, got {resp.status}"
         )
         body = resp.read(512).decode(errors="replace")
-        conn.close()
         assert "OK" in body, f"Expected 'OK' in /healthz body, got: {body!r}"
 
     finally:

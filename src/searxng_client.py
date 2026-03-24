@@ -24,7 +24,7 @@ async def search(params: dict[str, str | int]) -> dict[str, object]:
     """Call SearXNG /search and return parsed JSON. Always forces format=json."""
     if _search_client is None:
         raise RuntimeError("searxng_client not initialized")
-    url = config.SEARXNG_URL.rstrip("/") + "/search"
+    url = config.SEARXNG_URL + "/search"
     response = await _search_client.get(url, params={"format": "json", **params})
     response.raise_for_status()
     return response.json()
@@ -39,19 +39,8 @@ async def fetch(url: str) -> str:
     return response.text
 
 
-async def proxy_request(
-    method: str,
-    url: str,
-    headers: dict[str, str],
-    content: bytes,
-) -> httpx.Response:
-    """Forward an arbitrary HTTP request through the fetch client."""
+def get_fetch_client() -> httpx.AsyncClient:
+    """Return the shared fetch client (for HTTP proxying in server.py)."""
     if _fetch_client is None:
         raise RuntimeError("searxng_client not initialized")
-    return await _fetch_client.request(
-        method=method,
-        url=url,
-        headers=headers,
-        content=content,
-        follow_redirects=True,
-    )
+    return _fetch_client

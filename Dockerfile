@@ -11,7 +11,7 @@ FROM docker.io/searxng/searxng:latest
 RUN PYLIB=$(python3 -c "import sysconfig; print(sysconfig.get_path('purelib'))") \
     && python3 -m ensurepip \
     && python3 -m pip install --quiet uv \
-    && python3 -m uv pip install fastmcp httpx markdownify \
+    && python3 -m uv pip install beautifulsoup4 fastmcp httpx markdownify \
         --python /usr/local/searxng/.venv/bin/python \
         --no-cache \
     && rm -rf \
