@@ -298,6 +298,7 @@ def test_startup_time():
 
         start = time.monotonic()
         deadline = start + 30.0
+        got_200 = False
 
         while time.monotonic() < deadline:
             try:
@@ -306,12 +307,14 @@ def test_startup_time():
                 resp = conn.getresponse()
                 conn.close()
                 if resp.status == 200:
+                    got_200 = True
                     break
             except OSError:
-                pass
+                conn.close()
             time.sleep(0.1)
 
         elapsed = time.monotonic() - start
+        assert got_200, "SearXNG /healthz never returned HTTP 200 within 30s"
         assert elapsed < 10.0, f"Startup took {elapsed:.1f}s (expected < 10s)"
 
     finally:

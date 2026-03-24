@@ -27,7 +27,7 @@ async def search(params: dict[str, str | int]) -> dict[str, Any]:
     if _search_client is None:
         raise RuntimeError("searxng_client not initialized")
     url = config.SEARXNG_URL + "/search"
-    response = await _search_client.get(url, params={"format": "json", **params})
+    response = await _search_client.get(url, params={**params, "format": "json"})
     response.raise_for_status()
     return response.json()
 

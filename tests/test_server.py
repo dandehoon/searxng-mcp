@@ -103,7 +103,6 @@ def test_response_no_of_when_not_truncated():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_web_propagates_errors():
     """search_web lets exceptions propagate — FastMCP converts them to MCP errors."""
     with patch.object(
@@ -114,7 +113,6 @@ async def test_search_web_propagates_errors():
             await search_web(query="test")
 
 
-@pytest.mark.asyncio
 async def test_search_web_max_results():
     fake_results = [
         {"title": f"Result {i}", "url": f"https://example.com/{i}", "content": ""}
@@ -133,7 +131,6 @@ async def test_search_web_max_results():
     assert "5 of 20" in str(result)
 
 
-@pytest.mark.asyncio
 async def test_search_web_score_rounded():
     fake_results = [
         {
@@ -157,7 +154,6 @@ async def test_search_web_score_rounded():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_fetch_url_returns_content():
     with patch.object(
         server.searxng_client, "fetch", new_callable=AsyncMock
@@ -170,7 +166,6 @@ async def test_fetch_url_returns_content():
     assert "<html>" not in result
 
 
-@pytest.mark.asyncio
 async def test_fetch_url_propagates_errors():
     """fetch_url lets exceptions propagate — FastMCP converts them to MCP errors."""
     with patch.object(
@@ -181,7 +176,6 @@ async def test_fetch_url_propagates_errors():
             await fetch_url(url="https://example.com")
 
 
-@pytest.mark.asyncio
 async def test_fetch_url_strips_script_tags():
     html = "<html><body><p>Keep this</p><script>evil()</script></body></html>"
     with patch.object(
@@ -194,7 +188,6 @@ async def test_fetch_url_strips_script_tags():
     assert "<script>" not in result
 
 
-@pytest.mark.asyncio
 async def test_fetch_url_strips_nav_and_footer():
     html = (
         "<html><body>"
@@ -213,7 +206,6 @@ async def test_fetch_url_strips_nav_and_footer():
     assert "Footer text" not in result
 
 
-@pytest.mark.asyncio
 async def test_fetch_url_converts_headings_to_markdown():
     html = "<html><body><h1>Big Title</h1><h2>Subtitle</h2></body></html>"
     with patch.object(
@@ -229,7 +221,6 @@ async def test_fetch_url_converts_headings_to_markdown():
     assert "<h2>" not in result
 
 
-@pytest.mark.asyncio
 async def test_fetch_url_converts_links_to_markdown():
     html = '<html><body><a href="https://example.com">Example</a></body></html>'
     with patch.object(
@@ -274,7 +265,6 @@ def test_config_transport_default():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_search_web_no_score_field():
     """Results without a 'score' key should have score=None (not crash)."""
     fake_results = [{"title": "No score", "url": "https://x.com", "content": "text"}]
@@ -314,7 +304,6 @@ def _make_request(
     return req
 
 
-@pytest.mark.asyncio
 async def test_proxy_forwards_request():
     mock_resp = httpx.Response(200, content=b"ok")
     req = _make_request({"path": "search"}, query="q=test")
@@ -328,7 +317,6 @@ async def test_proxy_forwards_request():
     assert result.body == b"ok"
 
 
-@pytest.mark.asyncio
 async def test_proxy_strips_hop_by_hop_headers():
     hop_headers = {
         "transfer-encoding": "chunked",
@@ -350,7 +338,6 @@ async def test_proxy_strips_hop_by_hop_headers():
     assert "x-custom" in result_header_keys
 
 
-@pytest.mark.asyncio
 async def test_proxy_root_path():
     mock_resp = httpx.Response(200, content=b"root")
     req = _make_request({})  # empty path_params — root route
@@ -365,7 +352,6 @@ async def test_proxy_root_path():
     assert "//" not in called_url.replace("://", "")
 
 
-@pytest.mark.asyncio
 async def test_proxy_passes_query_string():
     mock_resp = httpx.Response(200, content=b"")
     req = _make_request({"path": "search"}, query="q=hello&format=json")

@@ -19,7 +19,7 @@ run-detached:
 dev:
 	TRANSPORT=$(TRANSPORT) uv run python src/server.py
 
-# Requires: pip install ruff mypy
+# Dev deps required: make install-dev
 lint:
 	uv run ruff check src/ tests/
 	uv run ruff format --check src/ tests/
