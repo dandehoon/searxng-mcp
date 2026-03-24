@@ -21,9 +21,9 @@ dev:
 
 # Requires: pip install ruff mypy
 lint:
-	uv run ruff check src/
-	uv run ruff format --check src/
-	uv run mypy src/ --ignore-missing-imports
+	uv run ruff check src/ tests/
+	uv run ruff format --check src/ tests/
+	uv run mypy src/ tests/ --ignore-missing-imports
 
 # Install project in editable mode + dev tools
 install-dev:
@@ -32,7 +32,7 @@ install-dev:
 test:
 	uv run pytest tests/test_server.py -v
 
-test-all: build
+test-all: build test
 	uv run pytest tests/test_e2e.py -v -s --timeout=180
 
 clean:

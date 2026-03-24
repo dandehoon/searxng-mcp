@@ -1,5 +1,7 @@
 """Async HTTP client for SearXNG search API and URL fetching."""
 
+from typing import Any
+
 import httpx
 import config
 
@@ -20,7 +22,7 @@ def init(search_client: httpx.AsyncClient, fetch_client: httpx.AsyncClient) -> N
     _fetch_client = fetch_client
 
 
-async def search(params: dict[str, str | int]) -> dict[str, object]:
+async def search(params: dict[str, str | int]) -> dict[str, Any]:
     """Call SearXNG /search and return parsed JSON. Always forces format=json."""
     if _search_client is None:
         raise RuntimeError("searxng_client not initialized")

@@ -20,6 +20,7 @@ import pytest
 
 def _send(proc: subprocess.Popen, message: dict) -> None:
     """Write a single JSON-RPC message (NDJSON) to the container's stdin."""
+    assert proc.stdin is not None
     line = json.dumps(message) + "\n"
     proc.stdin.write(line.encode())
     proc.stdin.flush()
@@ -27,6 +28,7 @@ def _send(proc: subprocess.Popen, message: dict) -> None:
 
 def _read_response(proc: subprocess.Popen, timeout: float = 120.0) -> dict:
     """Read lines from stdout until a JSON object with an 'id' field is found."""
+    assert proc.stdout is not None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         line = proc.stdout.readline()
@@ -60,7 +62,7 @@ def _wait_for_port(host: str, port: int, timeout: float = 60.0) -> None:
 
 def _http_retry(
     host: str, port: int, method: str, path: str, *, timeout: float = 30.0, **kwargs
-) -> http.client.HTTPResponse:
+) -> tuple[http.client.HTTPConnection, http.client.HTTPResponse]:
     """Retry an HTTP request until it succeeds or the timeout expires."""
     deadline = time.monotonic() + timeout
     exc: Exception = OSError("Deadline passed before first attempt")
@@ -68,7 +70,7 @@ def _http_retry(
         try:
             conn = http.client.HTTPConnection(host, port, timeout=10)
             conn.request(method, path, **kwargs)
-            return conn.getresponse()
+            return conn, conn.getresponse()
         except (http.client.RemoteDisconnected, ConnectionResetError, OSError) as e:
             exc = e
             conn.close()
@@ -232,11 +234,14 @@ def test_http_transport_e2e():
             "Accept": "application/json, text/event-stream",
         }
 
-        resp = _http_retry(host, port, "POST", "/mcp/", body=payload, headers=headers)
+        conn, resp = _http_retry(
+            host, port, "POST", "/mcp/", body=payload, headers=headers
+        )
         assert resp.status == 200, f"Expected HTTP 200, got {resp.status}"
 
         # Read the SSE stream — data lines look like: data: {"jsonrpc":"2.0",...}
         body = resp.read(65536).decode(errors="replace")
+        conn.close()
 
         sse_data = None
         for line in body.splitlines():
@@ -337,13 +342,13 @@ def test_proxy_e2e():
     try:
         _wait_for_port(host, port, timeout=120.0)
 
-        resp = _http_retry(host, port, "GET", "/healthz")
+        conn, resp = _http_retry(host, port, "GET", "/healthz")
         assert resp.status == 200, (
             f"Expected 200 from /healthz proxy, got {resp.status}"
         )
         body = resp.read(512).decode(errors="replace")
+        conn.close()
         assert "OK" in body, f"Expected 'OK' in /healthz body, got: {body!r}"
-
     finally:
         proc.terminate()
         try:

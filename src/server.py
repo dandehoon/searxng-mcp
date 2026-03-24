@@ -4,6 +4,7 @@ import asyncio
 import signal
 import sys
 import logging
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -21,6 +22,8 @@ from fastmcp import FastMCP
 HOP_BY_HOP = frozenset(
     {
         "connection",
+        "content-encoding",
+        "content-length",
         "keep-alive",
         "proxy-authenticate",
         "proxy-authorization",
@@ -154,7 +157,7 @@ def _build_target_url(request: Request) -> str:
     return url
 
 
-def _filter_headers(headers) -> dict[str, str]:
+def _filter_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP}
 
 
@@ -182,12 +185,15 @@ async def _run() -> None:
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGTERM, loop.stop)
     try:
-        kwargs = (
-            dict(host=config.MCP_HOST, port=config.MCP_PORT, path=config.MCP_PATH)
-            if is_http
-            else {}
-        )
-        await mcp.run_async(transport=transport, **kwargs)
+        if is_http:
+            await mcp.run_async(
+                transport=transport,
+                host=config.MCP_HOST,
+                port=config.MCP_PORT,
+                path=config.MCP_PATH,
+            )
+        else:
+            await mcp.run_async(transport=transport)
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
 
