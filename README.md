@@ -15,7 +15,7 @@ No separate SearXNG container needed — just run the image.
   "mcpServers": {
     "searxng": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "ghcr.io/YOUR_USER/searxng-mcp:latest"]
+      "args": ["run", "--rm", "-i", "dandehoon/searxng-mcp:latest"]
     }
   }
 }
@@ -30,7 +30,7 @@ No separate SearXNG container needed — just run the image.
   "mcpServers": {
     "searxng": {
       "command": "docker",
-      "args": ["run", "--rm", "-i", "ghcr.io/YOUR_USER/searxng-mcp:latest"]
+      "args": ["run", "--rm", "-i", "dandehoon/searxng-mcp:latest"]
     }
   }
 }
@@ -39,7 +39,7 @@ No separate SearXNG container needed — just run the image.
 ### HTTP Streamable (remote / multi-client)
 
 ```bash
-docker run --rm -p 8000:8000 -e TRANSPORT=http ghcr.io/YOUR_USER/searxng-mcp:latest
+docker run --rm -p 8000:8000 -e TRANSPORT=http dandehoon/searxng-mcp:latest
 # MCP endpoint: http://localhost:8000/mcp/
 ```
 
