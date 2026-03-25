@@ -6,9 +6,22 @@ No separate SearXNG container needed — just run the image.
 
 ## Usage
 
-### Claude Desktop
+```bash
+# STDIO (Claude Code / Cursor / Copilot / OpenCode)
+docker run --rm -i dandehoon/searxng-mcp:latest
 
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+# HTTP Streamable (remote / multi-client)
+docker run --rm -p 8000:8000 -e TRANSPORT=http dandehoon/searxng-mcp:latest
+```
+
+<details>
+<summary>Claude Code</summary>
+
+```bash
+claude mcp add --transport stdio searxng -- docker run --rm -i dandehoon/searxng-mcp:latest
+```
+
+Or add to `.mcp.json` in your project root (project-scoped) or `~/.claude.json` (user-scoped):
 
 ```json
 {
@@ -21,7 +34,28 @@ No separate SearXNG container needed — just run the image.
 }
 ```
 
-### Cursor
+</details>
+
+<details>
+<summary>GitHub Copilot</summary>
+
+`.vscode/mcp.json` (or `MCP: Open User Configuration` for global):
+
+```json
+{
+  "servers": {
+    "searxng": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "dandehoon/searxng-mcp:latest"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Cursor</summary>
 
 `.cursor/mcp.json` (or `~/.cursor/mcp.json` for global):
 
@@ -36,61 +70,83 @@ No separate SearXNG container needed — just run the image.
 }
 ```
 
-### HTTP Streamable (remote / multi-client)
+</details>
+
+<details>
+<summary>OpenCode</summary>
 
 ```bash
-docker run --rm -p 8000:8000 -e TRANSPORT=http dandehoon/searxng-mcp:latest
-# MCP endpoint: http://localhost:8000/mcp/
+opencode mcp add searxng -- docker run --rm -i dandehoon/searxng-mcp:latest
 ```
+
+Or add to `opencode.json` in your project root (or `~/.config/opencode/opencode.json` for global):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "searxng": {
+      "type": "local",
+      "command": ["docker", "run", "--rm", "-i", "dandehoon/searxng-mcp:latest"]
+    }
+  }
+}
+```
+
+</details>
 
 ## Build
 
 ```bash
+# Build with the latest SearXNG image (default)
 docker build -t searxng-mcp:latest .
+
+# Pin to a specific SearXNG version
+docker build --build-arg SEARXNG_VERSION=2026.3.24-02ba38786 -t searxng-mcp:latest .
 ```
 
-Then use `searxng-mcp:latest` instead of the registry image above.
+Then use `searxng-mcp:latest` instead of the registry image in any client config above.
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
+| Tool         | Description                                                                       |
+| ------------ | --------------------------------------------------------------------------------- |
 | `search-web` | Search the web via SearXNG. Returns titles, URLs, snippets, and relevance scores. |
-| `fetch-url` | Fetch a URL and return its content as readable Markdown text. |
+| `fetch-url`  | Fetch a URL and return its content as readable Markdown text.                     |
 
 ### `search-web` parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `query` | string | — | Search query (required) |
-| `categories` | string | `general` | SearXNG category (e.g. `news`, `images`) |
-| `engines` | string | — | Comma-separated engine list |
-| `language` | string | `auto` | Language code |
-| `pageno` | int | `1` | Result page number |
-| `time_range` | string | — | `day`, `month`, or `year` |
-| `safesearch` | int | `0` | `0` = off, `1` = moderate, `2` = strict |
-| `max_results` | int | `10` | Maximum results to return |
+| Parameter     | Type   | Default   | Description                              |
+| ------------- | ------ | --------- | ---------------------------------------- |
+| `query`       | string | —         | Search query (required)                  |
+| `categories`  | string | `general` | SearXNG category (e.g. `news`, `images`) |
+| `engines`     | string | —         | Comma-separated engine list              |
+| `language`    | string | `auto`    | Language code                            |
+| `pageno`      | int    | `1`       | Result page number                       |
+| `time_range`  | string | —         | `day`, `month`, or `year`                |
+| `safesearch`  | int    | `0`       | `0` = off, `1` = moderate, `2` = strict  |
+| `max_results` | int    | `10`      | Maximum results to return                |
 
 ### `fetch-url` parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `url` | string | URL to fetch (required) |
+| Parameter | Type   | Description             |
+| --------- | ------ | ----------------------- |
+| `url`     | string | URL to fetch (required) |
 
 HTML is converted to Markdown before returning — `<script>`, `<style>`, `<nav>`, `<footer>`, and `<aside>` tags are stripped.
 
 ## Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TRANSPORT` | `stdio` | Transport mode: `stdio`, `http`, or `streamable-http` |
-| `LOG_LEVEL` | `WARNING` | Python log level for the MCP server |
-| `SEARXNG_URL` | `http://127.0.0.1:8080` | SearXNG base URL (internal) |
-| `SEARXNG_TIMEOUT` | `30.0` | Search HTTP timeout in seconds |
-| `FETCH_TIMEOUT` | `60.0` | URL fetch HTTP timeout in seconds |
-| `MCP_HOST` | `0.0.0.0` | Bind host (HTTP transport only) |
-| `MCP_PORT` | `8000` | Bind port (HTTP transport only) |
-| `MCP_PATH` | `/mcp/` | URL path (HTTP transport only) |
+| Variable          | Default                 | Description                                           |
+| ----------------- | ----------------------- | ----------------------------------------------------- |
+| `TRANSPORT`       | `stdio`                 | Transport mode: `stdio`, `http`, or `streamable-http` |
+| `LOG_LEVEL`       | `WARNING`               | Python log level for the MCP server                   |
+| `SEARXNG_URL`     | `http://127.0.0.1:8080` | SearXNG base URL (internal)                           |
+| `SEARXNG_TIMEOUT` | `30.0`                  | Search HTTP timeout in seconds                        |
+| `FETCH_TIMEOUT`   | `60.0`                  | URL fetch HTTP timeout in seconds                     |
+| `MCP_HOST`        | `0.0.0.0`               | Bind host (HTTP transport only)                       |
+| `MCP_PORT`        | `8000`                  | Bind port (HTTP transport only)                       |
+| `MCP_PATH`        | `/mcp/`                 | URL path (HTTP transport only)                        |
 
 ## Architecture
 
