@@ -86,7 +86,8 @@ HTML is converted to Markdown before returning — `<script>`, `<style>`, `<nav>
 | `TRANSPORT` | `stdio` | Transport mode: `stdio`, `http`, or `streamable-http` |
 | `LOG_LEVEL` | `WARNING` | Python log level for the MCP server |
 | `SEARXNG_URL` | `http://127.0.0.1:8080` | SearXNG base URL (internal) |
-| `SEARXNG_TIMEOUT` | `30.0` | HTTP timeout in seconds |
+| `SEARXNG_TIMEOUT` | `30.0` | Search HTTP timeout in seconds |
+| `FETCH_TIMEOUT` | `60.0` | URL fetch HTTP timeout in seconds |
 | `MCP_HOST` | `0.0.0.0` | Bind host (HTTP transport only) |
 | `MCP_PORT` | `8000` | Bind port (HTTP transport only) |
 | `MCP_PATH` | `/mcp/` | URL path (HTTP transport only) |
