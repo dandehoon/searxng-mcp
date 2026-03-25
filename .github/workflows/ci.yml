@@ -44,7 +44,7 @@ jobs:
         with:
           context: .
           load: true
-          tags: searxng-mcp:ci
+          tags: searxng-mcp:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: uv run pytest tests/test_e2e.py -v -s --timeout=180
