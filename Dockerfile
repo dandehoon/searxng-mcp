@@ -1,8 +1,10 @@
 # Build on top of the official SearXNG image.
 # This inherits their pre-compiled venv (granian, lxml, etc.) and avoids
-# re-compiling C extensions. When SearXNG releases a new version, just
-# re-pull this base image — no Dockerfile changes needed.
-FROM docker.io/searxng/searxng:latest
+# re-compiling C extensions.
+# Pin SEARXNG_VERSION at build time for reproducible images; default to latest
+# for local dev. CI release workflow should pass a specific upstream tag.
+ARG SEARXNG_VERSION=latest
+FROM docker.io/searxng/searxng:${SEARXNG_VERSION}
 
 # Bootstrap pip and uv into the system Python (Void Linux has neither by default).
 # Install our MCP server dependencies into the existing SearXNG venv so both

@@ -2,11 +2,12 @@ IMAGE_NAME ?= searxng-mcp
 IMAGE_TAG ?= latest
 FULL_IMAGE = $(IMAGE_NAME):$(IMAGE_TAG)
 TRANSPORT ?= stdio
+SEARXNG_VERSION ?= latest
 
 .PHONY: build run dev lint install-dev clean test test-all
 
 build:
-	docker build -t $(FULL_IMAGE) .
+	docker build --build-arg SEARXNG_VERSION=$(SEARXNG_VERSION) -t $(FULL_IMAGE) .
 
 run: build
 	docker run --rm -i $(FULL_IMAGE)
