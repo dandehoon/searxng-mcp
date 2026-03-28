@@ -72,6 +72,12 @@ docker run --rm -p 8000:8000 -e TRANSPORT=http searxng-mcp:latest
 | `MCP_HOST` | `0.0.0.0` | Bind host for HTTP transport |
 | `MCP_PORT` | `8000` | Bind port for HTTP transport |
 | `MCP_PATH` | `/mcp/` | URL path for HTTP transport |
+| `SEARXNG_CATEGORIES` | `general` | Default search category |
+| `SEARXNG_LANGUAGE` | `auto` | Default language code |
+| `SEARXNG_MAX_RESULTS` | `20` | Default maximum results to return |
+| `SEARXNG_SAFESEARCH` | `0` | Safe search: `0` = off, `1` = moderate, `2` = strict |
+| `SEARXNG_TIME_RANGE` | — | Filter by recency: `day`, `week`, `month`, or `year` |
+| `SEARXNG_ENGINES` | — | Comma-separated engines to force (e.g. `google,bing`) |
 
 ## Development commands
 

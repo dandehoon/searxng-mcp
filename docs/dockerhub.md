@@ -61,13 +61,12 @@ Search the web via SearXNG. Returns titles, URLs, snippets, and relevance scores
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `query` | string | — | Search query (required) |
-| `categories` | string | `general` | SearXNG category (e.g. `news`, `science`) |
-| `engines` | string | — | Comma-separated engine list |
-| `language` | string | `auto` | Language code |
+| `categories` | string | `$SEARXNG_CATEGORIES` | SearXNG category (e.g. `news`, `images`) |
+| `language` | string | `$SEARXNG_LANGUAGE` | Language code (e.g. `en`, `fr`). `auto` to detect. |
 | `pageno` | int | `1` | Result page number |
-| `time_range` | string | — | `day`, `month`, or `year` |
-| `safesearch` | int | `0` | `0` = off, `1` = moderate, `2` = strict |
-| `max_results` | int | `10` | Maximum results to return |
+| `max_results` | int | `$SEARXNG_MAX_RESULTS` | Maximum results to return |
+
+`safesearch`, `time_range`, and `engines` are not exposed as tool parameters — configure them via environment variables instead.
 
 ### `fetch-url`
 
@@ -88,6 +87,12 @@ Fetch a URL and return its content as readable Markdown. Scripts, nav, footer, a
 | `MCP_HOST` | `0.0.0.0` | Bind host (HTTP transport only) |
 | `MCP_PORT` | `8000` | Bind port (HTTP transport only) |
 | `MCP_PATH` | `/mcp/` | URL path (HTTP transport only) |
+| `SEARXNG_CATEGORIES` | `general` | Default search category |
+| `SEARXNG_LANGUAGE` | `auto` | Default language code |
+| `SEARXNG_MAX_RESULTS` | `20` | Default maximum results to return |
+| `SEARXNG_SAFESEARCH` | `0` | Safe search: `0` = off, `1` = moderate, `2` = strict |
+| `SEARXNG_TIME_RANGE` | — | Filter by recency: `day`, `week`, `month`, or `year` |
+| `SEARXNG_ENGINES` | — | Comma-separated engines to force (e.g. `google,bing`) |
 
 ## Source
 
