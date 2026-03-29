@@ -7,10 +7,12 @@ import logging
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from typing import Annotated
 
 import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -95,28 +97,42 @@ class SearchResponse:
 
 
 @mcp.tool(name="search-web")
-async def search_web(  # noqa: PLR0913 — flat params required for MCP tool schema
-    query: str,
-    categories: str = "general",
-    engines: str | None = None,
-    language: str = "auto",
-    pageno: int = 1,
-    time_range: str | None = None,
-    safesearch: int = 0,
-    max_results: int = 10,
+async def search_web(
+    query: Annotated[str, Field(description="The search query string.")],
+    categories: Annotated[
+        str,
+        Field(
+            description=f"SearXNG search category. Dynamic — depends on enabled engines (e.g. 'general', 'news', 'images', etc.). Default: '{config.SEARXNG_CATEGORIES}'."
+        ),
+    ] = config.SEARXNG_CATEGORIES,
+    language: Annotated[
+        str,
+        Field(
+            description=f"Language code for results (e.g. 'en', 'fr', 'de'). Use 'auto' to detect from the query. Default: '{config.SEARXNG_LANGUAGE}'."
+        ),
+    ] = config.SEARXNG_LANGUAGE,
+    pageno: Annotated[
+        int, Field(description="Page number for pagination, starting at 1.")
+    ] = 1,
+    max_results: Annotated[
+        int,
+        Field(
+            description=f"Maximum number of results to return. Applied client-side after fetching. Default: {config.SEARXNG_MAX_RESULTS}."
+        ),
+    ] = config.SEARXNG_MAX_RESULTS,
 ) -> SearchResponse:
-    """Search the web using SearXNG. Returns titles, URLs, content snippets, and relevance scores."""
+    """Search the web via SearXNG and return ranked results with titles, URLs, snippets, and relevance scores."""
     params: dict[str, str | int] = {
         "q": query,
         "categories": categories,
         "language": language,
         "pageno": pageno,
-        "safesearch": safesearch,
+        "safesearch": config.SEARXNG_SAFESEARCH,
     }
-    if engines is not None:
-        params["engines"] = engines
-    if time_range is not None:
-        params["time_range"] = time_range
+    if config.SEARXNG_ENGINES is not None:
+        params["engines"] = config.SEARXNG_ENGINES
+    if config.SEARXNG_TIME_RANGE is not None:
+        params["time_range"] = config.SEARXNG_TIME_RANGE
 
     data = await searxng_client.search(params)
     all_results = data.get("results", [])
@@ -138,8 +154,10 @@ _STRIP_TAGS = ["script", "style", "head", "nav", "footer", "aside"]
 
 
 @mcp.tool(name="fetch-url")
-async def fetch_url(url: str) -> str:
-    """Fetch the content of a URL and return it as readable Markdown text."""
+async def fetch_url(
+    url: Annotated[str, Field(description="The URL to fetch.")],
+) -> str:
+    """Fetch a URL and return its content as Markdown. Strips noise tags (nav, footer, scripts, etc.) before conversion."""
     html = await searxng_client.fetch(url)
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(_STRIP_TAGS):

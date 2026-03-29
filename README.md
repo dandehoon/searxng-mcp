@@ -116,16 +116,15 @@ Then use `searxng-mcp:latest` instead of the registry image in any client config
 
 ### `search-web` parameters
 
-| Parameter     | Type   | Default   | Description                              |
-| ------------- | ------ | --------- | ---------------------------------------- |
-| `query`       | string | —         | Search query (required)                  |
-| `categories`  | string | `general` | SearXNG category (e.g. `news`, `images`) |
-| `engines`     | string | —         | Comma-separated engine list              |
-| `language`    | string | `auto`    | Language code                            |
-| `pageno`      | int    | `1`       | Result page number                       |
-| `time_range`  | string | —         | `day`, `month`, or `year`                |
-| `safesearch`  | int    | `0`       | `0` = off, `1` = moderate, `2` = strict  |
-| `max_results` | int    | `10`      | Maximum results to return                |
+| Parameter     | Type   | Default              | Description                                           |
+| ------------- | ------ | -------------------- | ----------------------------------------------------- |
+| `query`       | string | —                    | Search query (required)                               |
+| `categories`  | string | `$SEARXNG_CATEGORIES` | SearXNG category (e.g. `news`, `images`)             |
+| `language`    | string | `$SEARXNG_LANGUAGE`  | Language code (e.g. `en`, `fr`). `auto` to detect.   |
+| `pageno`      | int    | `1`                  | Result page number                                    |
+| `max_results` | int    | `$SEARXNG_MAX_RESULTS` | Maximum results to return                           |
+
+`safesearch`, `time_range`, and `engines` are not exposed as tool parameters — configure them via environment variables instead.
 
 ### `fetch-url` parameters
 
@@ -137,16 +136,22 @@ HTML is converted to Markdown before returning — `<script>`, `<style>`, `<nav>
 
 ## Environment variables
 
-| Variable          | Default                 | Description                                           |
-| ----------------- | ----------------------- | ----------------------------------------------------- |
-| `TRANSPORT`       | `stdio`                 | Transport mode: `stdio`, `http`, or `streamable-http` |
-| `LOG_LEVEL`       | `WARNING`               | Python log level for the MCP server                   |
-| `SEARXNG_URL`     | `http://127.0.0.1:8080` | SearXNG base URL (internal)                           |
-| `SEARXNG_TIMEOUT` | `30.0`                  | Search HTTP timeout in seconds                        |
-| `FETCH_TIMEOUT`   | `60.0`                  | URL fetch HTTP timeout in seconds                     |
-| `MCP_HOST`        | `0.0.0.0`               | Bind host (HTTP transport only)                       |
-| `MCP_PORT`        | `8000`                  | Bind port (HTTP transport only)                       |
-| `MCP_PATH`        | `/mcp/`                 | URL path (HTTP transport only)                        |
+| Variable               | Default                 | Description                                           |
+| ---------------------- | ----------------------- | ----------------------------------------------------- |
+| `TRANSPORT`            | `stdio`                 | Transport mode: `stdio`, `http`, or `streamable-http` |
+| `LOG_LEVEL`            | `WARNING`               | Python log level for the MCP server                   |
+| `SEARXNG_URL`          | `http://127.0.0.1:8080` | SearXNG base URL (internal)                           |
+| `SEARXNG_TIMEOUT`      | `30.0`                  | Search HTTP timeout in seconds                        |
+| `FETCH_TIMEOUT`        | `60.0`                  | URL fetch HTTP timeout in seconds                     |
+| `MCP_HOST`             | `0.0.0.0`               | Bind host (HTTP transport only)                       |
+| `MCP_PORT`             | `8000`                  | Bind port (HTTP transport only)                       |
+| `MCP_PATH`             | `/mcp/`                 | URL path (HTTP transport only)                        |
+| `SEARXNG_CATEGORIES`   | `general`               | Default search category                               |
+| `SEARXNG_LANGUAGE`     | `auto`                  | Default language code                                 |
+| `SEARXNG_MAX_RESULTS`  | `20`                    | Default maximum results to return                     |
+| `SEARXNG_SAFESEARCH`   | `0`                     | Safe search: `0` = off, `1` = moderate, `2` = strict  |
+| `SEARXNG_TIME_RANGE`   | —                       | Filter by recency: `day`, `week`, `month`, or `year`  |
+| `SEARXNG_ENGINES`      | —                       | Comma-separated engines to force (e.g. `google,bing`) |
 
 ## Architecture
 
