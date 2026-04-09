@@ -11,7 +11,7 @@ No separate SearXNG container needed — just run the image.
 docker run --rm -i dandehoon/searxng-mcp:latest
 
 # HTTP Streamable (remote / multi-client)
-docker run --rm -p 8000:8000 -e TRANSPORT=http dandehoon/searxng-mcp:latest
+docker run --rm -p 8000:8000 -e SEARXNG_MCP_TRANSPORT=http dandehoon/searxng-mcp:latest
 ```
 
 <details>
@@ -112,7 +112,7 @@ Then use `searxng-mcp:latest` instead of the registry image in any client config
 | Tool         | Description                                                                       |
 | ------------ | --------------------------------------------------------------------------------- |
 | `search-web` | Search the web via SearXNG. Returns titles, URLs, snippets, and relevance scores. |
-| `fetch-url`  | Fetch a URL and return its content as readable Markdown text.                     |
+| `fetch-web`  | Fetch a URL and return its content as readable Markdown text.                     |
 
 ### `search-web` parameters
 
@@ -122,11 +122,11 @@ Then use `searxng-mcp:latest` instead of the registry image in any client config
 | `categories`  | string | `$SEARXNG_CATEGORIES` | SearXNG category (e.g. `news`, `images`)             |
 | `language`    | string | `$SEARXNG_LANGUAGE`  | Language code (e.g. `en`, `fr`). `auto` to detect.   |
 | `pageno`      | int    | `1`                  | Result page number                                    |
-| `max_results` | int    | `$SEARXNG_MAX_RESULTS` | Maximum results to return                           |
+| `max_results` | int    | `$SEARXNG_MCP_MAX_RESULTS` | Maximum results to return                           |
 
 `safesearch`, `time_range`, and `engines` are not exposed as tool parameters — configure them via environment variables instead.
 
-### `fetch-url` parameters
+### `fetch-web` parameters
 
 | Parameter | Type   | Description             |
 | --------- | ------ | ----------------------- |
@@ -138,20 +138,22 @@ HTML is converted to Markdown before returning — `<script>`, `<style>`, `<nav>
 
 | Variable               | Default                 | Description                                           |
 | ---------------------- | ----------------------- | ----------------------------------------------------- |
-| `TRANSPORT`            | `stdio`                 | Transport mode: `stdio`, `http`, or `streamable-http` |
-| `LOG_LEVEL`            | `WARNING`               | Python log level for the MCP server                   |
+| `SEARXNG_MCP_TRANSPORT`            | `stdio`                 | Transport mode: `stdio`, `http`, or `streamable-http` |
+| `SEARXNG_MCP_LOG_LEVEL`            | `WARNING`               | Python log level for the MCP server                   |
 | `SEARXNG_URL`          | `http://127.0.0.1:8080` | SearXNG base URL (internal)                           |
 | `SEARXNG_TIMEOUT`      | `30.0`                  | Search HTTP timeout in seconds                        |
-| `FETCH_TIMEOUT`        | `60.0`                  | URL fetch HTTP timeout in seconds                     |
-| `MCP_HOST`             | `0.0.0.0`               | Bind host (HTTP transport only)                       |
-| `MCP_PORT`             | `8000`                  | Bind port (HTTP transport only)                       |
-| `MCP_PATH`             | `/mcp/`                 | URL path (HTTP transport only)                        |
+| `SEARXNG_MCP_FETCH_TIMEOUT`        | `60.0`                  | URL fetch HTTP timeout in seconds                     |
+| `SEARXNG_MCP_HOST`             | `0.0.0.0`               | Bind host (HTTP transport only)                       |
+| `SEARXNG_MCP_PORT`             | `8000`                  | Bind port (HTTP transport only)                       |
+| `SEARXNG_MCP_PATH`             | `/mcp/`                 | URL path (HTTP transport only)                        |
 | `SEARXNG_CATEGORIES`   | `general`               | Default search category                               |
 | `SEARXNG_LANGUAGE`     | `auto`                  | Default language code                                 |
-| `SEARXNG_MAX_RESULTS`  | `20`                    | Default maximum results to return                     |
+| `SEARXNG_MCP_MAX_RESULTS`  | `20`                    | Default maximum results to return                     |
 | `SEARXNG_SAFESEARCH`   | `0`                     | Safe search: `0` = off, `1` = moderate, `2` = strict  |
 | `SEARXNG_TIME_RANGE`   | —                       | Filter by recency: `day`, `week`, `month`, or `year`  |
 | `SEARXNG_ENGINES`      | —                       | Comma-separated engines to force (e.g. `google,bing`) |
+| `SEARXNG_MCP_DISABLE_SERVER`   | `false`                 | Skip MCP server; run SearXNG only (container as search backend) |
+| `SEARXNG_MCP_DISABLE_FETCH_WEB`    | `false`                 | Remove the `fetch-web` tool from the MCP server       |
 
 ## Architecture
 
@@ -165,7 +167,7 @@ docker run --rm -i searxng-mcp
     │
     └── MCP server (fastmcp)
             ├── search-web → httpx → SearXNG JSON API
-            └── fetch-url  → httpx → remote URL → markdownify
+            └── fetch-web  → httpx → remote URL → markdownify
 ```
 
 Built on top of `docker.io/searxng/searxng:latest` — no C extension recompilation needed. Updating SearXNG is a single `docker pull` away.

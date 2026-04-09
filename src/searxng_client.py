@@ -26,13 +26,13 @@ async def search(params: dict[str, str | int]) -> dict[str, Any]:
     return response.json()
 
 
-async def fetch(url: str) -> str:
-    """Fetch a URL and return the response text."""
+async def fetch(url: str) -> tuple[str, str]:
+    """Fetch a URL. Returns (body, content_type)."""
     if _fetch_client is None:
         raise RuntimeError("searxng_client not initialized")
     response = await _fetch_client.get(url, follow_redirects=True)
     response.raise_for_status()
-    return response.text
+    return response.text, response.headers.get("content-type", "text/html")
 
 
 def get_fetch_client() -> httpx.AsyncClient:

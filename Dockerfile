@@ -33,16 +33,18 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Environment defaults (overridable at docker run time)
-ENV TRANSPORT=stdio
-ENV LOG_LEVEL=WARNING
-ENV MCP_HOST=0.0.0.0
-ENV MCP_PORT=8000
-ENV MCP_PATH=/mcp/
+ENV SEARXNG_MCP_TRANSPORT=stdio
+ENV SEARXNG_MCP_LOG_LEVEL=WARNING
+ENV SEARXNG_MCP_HOST=0.0.0.0
+ENV SEARXNG_MCP_PORT=8000
+ENV SEARXNG_MCP_PATH=/mcp/
 ENV SEARXNG_URL=http://127.0.0.1:8080
 ENV SEARXNG_TIMEOUT=30.0
-ENV FETCH_TIMEOUT=60.0
+ENV SEARXNG_MCP_FETCH_TIMEOUT=60.0
 ENV SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
+ENV SEARXNG_MCP_DISABLE_SERVER=false
+ENV SEARXNG_MCP_DISABLE_FETCH_WEB=false
 
-# Port exposed only when TRANSPORT=http (ignored in stdio mode)
+# Port exposed only when SEARXNG_MCP_TRANSPORT=http (ignored in stdio mode)
 EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]

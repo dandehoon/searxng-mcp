@@ -39,5 +39,12 @@ until wget -q --timeout=2 -O /dev/null "${SEARXNG_URL}/healthz" 2>/dev/null; do
 done
 echo "SearXNG is ready" >&2
 
-# exec replaces this shell process; Docker sends SIGTERM to Python (PID 1) on stop.
-exec "$VENV/bin/python" /app/src/server.py
+# When SEARXNG_MCP_DISABLE_SERVER=true, keep SearXNG in the foreground (no MCP server).
+# Useful when only the search engine is needed (e.g. as a backend for another MCP client).
+if [ "${SEARXNG_MCP_DISABLE_SERVER:-false}" = "true" ]; then
+    echo "MCP server disabled — running SearXNG only" >&2
+    wait
+else
+    # exec replaces this shell process; Docker sends SIGTERM to Python (PID 1) on stop.
+    exec "$VENV/bin/python" /app/src/server.py
+fi

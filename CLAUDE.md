@@ -6,13 +6,13 @@ Project context for AI assistants working in this repo.
 
 A single Docker image that bundles [SearXNG](https://github.com/searxng/searxng) (self-hosted meta-search engine) and a Python MCP server. Users wire it into Claude Desktop or Cursor with one `docker run` line — no separate SearXNG container needed.
 
-MCP transport defaults to **STDIO** (for Claude Desktop / Cursor). Set `TRANSPORT=http` for an HTTP Streamable endpoint instead.
+MCP transport defaults to **STDIO** (for Claude Desktop / Cursor). Set `SEARXNG_MCP_TRANSPORT=http` for an HTTP Streamable endpoint instead.
 
 ## Repository layout
 
 ```
 src/
-  config.py           — all env-var config constants (SEARXNG_URL, TRANSPORT, MCP_HOST, …)
+  config.py           — all env-var config constants (SEARXNG_URL, SEARXNG_MCP_TRANSPORT, SEARXNG_MCP_HOST, …)
   searxng_client.py   — async HTTP client module; init() called once at lifespan start
   server.py           — FastMCP server, tool definitions, lifespan, mcp.run()
 config/
@@ -32,7 +32,7 @@ pyproject.toml        — deps: fastmcp, httpx, markdownify; dev: ruff, mypy, py
 | Tool name | Function | Description |
 |-----------|----------|-------------|
 | `search-web` | `search_web` | Search via SearXNG JSON API; returns `SearchResponse` dataclass |
-| `fetch-url` | `fetch_url` | Fetch a URL; converts HTML → Markdown via `markdownify` |
+| `fetch-web` | `fetch_web` | Fetch a URL; converts HTML → Markdown via `markdownify` |
 
 Tool names are **kebab-case** (set via `@mcp.tool(name="...")`).
 
@@ -57,7 +57,7 @@ docker run --rm -i searxng-mcp:latest
 
 **HTTP Streamable** — for remote/multi-client use:
 ```
-docker run --rm -p 8000:8000 -e TRANSPORT=http searxng-mcp:latest
+docker run --rm -p 8000:8000 -e SEARXNG_MCP_TRANSPORT=http searxng-mcp:latest
 # MCP endpoint: http://localhost:8000/mcp/
 ```
 
@@ -65,19 +65,21 @@ docker run --rm -p 8000:8000 -e TRANSPORT=http searxng-mcp:latest
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TRANSPORT` | `stdio` | `stdio`, `http`, or `streamable-http` |
-| `LOG_LEVEL` | `WARNING` | Python log level |
+| `SEARXNG_MCP_TRANSPORT` | `stdio` | `stdio`, `http`, or `streamable-http` |
+| `SEARXNG_MCP_LOG_LEVEL` | `WARNING` | Python log level |
 | `SEARXNG_URL` | `http://127.0.0.1:8080` | Internal SearXNG base URL |
 | `SEARXNG_TIMEOUT` | `30.0` | HTTP timeout (seconds) |
-| `MCP_HOST` | `0.0.0.0` | Bind host for HTTP transport |
-| `MCP_PORT` | `8000` | Bind port for HTTP transport |
-| `MCP_PATH` | `/mcp/` | URL path for HTTP transport |
+| `SEARXNG_MCP_HOST` | `0.0.0.0` | Bind host for HTTP transport |
+| `SEARXNG_MCP_PORT` | `8000` | Bind port for HTTP transport |
+| `SEARXNG_MCP_PATH` | `/mcp/` | URL path for HTTP transport |
 | `SEARXNG_CATEGORIES` | `general` | Default search category |
 | `SEARXNG_LANGUAGE` | `auto` | Default language code |
-| `SEARXNG_MAX_RESULTS` | `20` | Default maximum results to return |
+| `SEARXNG_MCP_MAX_RESULTS` | `20` | Default maximum results to return |
 | `SEARXNG_SAFESEARCH` | `0` | Safe search: `0` = off, `1` = moderate, `2` = strict |
 | `SEARXNG_TIME_RANGE` | — | Filter by recency: `day`, `week`, `month`, or `year` |
 | `SEARXNG_ENGINES` | — | Comma-separated engines to force (e.g. `google,bing`) |
+| `SEARXNG_MCP_DISABLE_SERVER` | `false` | Skip MCP server; run SearXNG only (container as search backend) |
+| `SEARXNG_MCP_DISABLE_FETCH_WEB` | `false` | Remove the `fetch-web` tool from the MCP server |
 
 ## Development commands
 
@@ -97,5 +99,5 @@ make dev           # run server locally (needs external SearXNG at SEARXNG_URL)
 - Python version in the venv is **3.14** (Void Linux bleeding-edge). Don't hard-code `python3.14` paths; use the venv binary.
 - `config/settings.yml` **must** include `search.formats: [html, json]` — without it SearXNG rejects JSON API requests.
 - When `exec` replaces the entrypoint shell, the `trap cleanup EXIT` does NOT fire. Granian becomes an orphan but Docker kills all processes on container stop anyway.
-- `markdownify` strips `script`, `style`, `head`, `nav`, `footer`, `aside` tags from fetched pages. Adjust the `strip=` list in `server.py:fetch_url` if needed.
+- `markdownify` strips `script`, `style`, `head`, `nav`, `footer`, `aside` tags from fetched pages. Adjust the `strip=` list in `server.py:fetch_web` if needed.
 - FastMCP version in the image: **3.1.1** (check with `uv pip show fastmcp` inside the venv). The `@mcp.tool(name="...")` decorator syntax requires FastMCP ≥ 2.0.

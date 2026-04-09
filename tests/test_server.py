@@ -9,10 +9,11 @@ import config
 import searxng_client
 import server
 from server import (
+    FetchResponse,
     SearchResponse,
     SearchResult,
     search_web,
-    fetch_url,
+    fetch_web,
     _proxy,
 )
 
@@ -71,6 +72,18 @@ def test_response_truncated():
 # ---------------------------------------------------------------------------
 
 
+async def test_search_web_returns_string():
+    """search_web returns a plain str — no structured JSON wrapper."""
+    with patch.object(
+        server.searxng_client, "search", new_callable=AsyncMock
+    ) as mock_search:
+        mock_search.return_value = {"results": []}
+        result = await search_web(query="nothing")
+
+    assert isinstance(result, str)
+    assert "No results found for: nothing" in result
+
+
 async def test_search_web_propagates_errors():
     """search_web lets exceptions propagate — FastMCP converts them to MCP errors."""
     with patch.object(
@@ -96,27 +109,37 @@ async def test_search_web_max_results_with_scores():
         mock_search.return_value = {"results": fake_results}
         result = await search_web(query="test", max_results=5)
 
-    assert isinstance(result, SearchResponse)
-    assert result.shown == 5
-    assert result.total == 20
-    assert len(result.results) == 5
-    assert "5 of 20" in str(result)
+    assert isinstance(result, str)
+    assert "5 of 20" in result
     # Score rounding: 2.090909... → 2.091
-    assert result.results[0].score == 2.091
-    # Missing score → None, not displayed
-    assert result.results[1].score is None
-    assert "[score:" not in str(result).split("\n\n")[2]  # second result entry
+    assert "2.091" in result
+    # Missing score → not displayed for second result
+    assert "[score:" not in result.split("\n\n")[2]  # second result entry
 
 
 # ---------------------------------------------------------------------------
-# fetch_url — async tool tests
+# FetchResponse.__str__ — formatting tests
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_url_strips_unwanted_tags():
-    """All tags in _STRIP_TAGS are removed; main content is preserved."""
+def test_fetch_response_str_format():
+    resp = FetchResponse(
+        url="https://example.com", title="My Title", content="Body text"
+    )
+    text = str(resp)
+    assert text.startswith("Title: My Title\nURL: https://example.com\n\n")
+    assert text.endswith("Body text")
+
+
+# ---------------------------------------------------------------------------
+# fetch_web — async tool tests
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_web_strips_unwanted_tags():
+    """All noise tags are removed; main content, title, and URL are preserved."""
     html = (
-        "<html><head><title>T</title></head><body>"
+        "<html><head><title>Page Title</title></head><body>"
         "<nav>Site nav</nav>"
         "<p>Main content</p>"
         "<script>evil()</script>"
@@ -128,12 +151,16 @@ async def test_fetch_url_strips_unwanted_tags():
     with patch.object(
         server.searxng_client, "fetch", new_callable=AsyncMock
     ) as mock_fetch:
-        mock_fetch.return_value = html
-        result = await fetch_url(url="https://example.com")
+        mock_fetch.return_value = (html, "text/html; charset=utf-8")
+        result = await fetch_web(url="https://example.com")
 
-    # Kept
+    assert isinstance(result, str)
+    # Metadata header
+    assert "Title: Page Title" in result
+    assert "URL: https://example.com" in result
+    # Kept content
     assert "Main content" in result
-    # Stripped tags
+    # Stripped noise
     assert "Site nav" not in result
     assert "evil()" not in result
     assert ".x{}" not in result
@@ -145,14 +172,71 @@ async def test_fetch_url_strips_unwanted_tags():
     assert "<nav>" not in result
 
 
-async def test_fetch_url_propagates_errors():
-    """fetch_url lets exceptions propagate — FastMCP converts them to MCP errors."""
+async def test_fetch_web_native_markdown_skips_html_processing():
+    """When server returns text/markdown, HTML parsing is bypassed entirely."""
+    md = "# Native Title\n\nSome **markdown** content.\n\n\n\nExtra blank lines."
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = (md, "text/markdown; charset=utf-8")
+        result = await fetch_web(url="https://example.com/doc")
+
+    assert "Title: Native Title" in result
+    assert "URL: https://example.com/doc" in result
+    assert "Some **markdown** content." in result
+    # Blank lines collapsed
+    assert "\n\n\n" not in result
+
+
+async def test_fetch_web_strips_aria_role_selectors():
+    """Elements with ARIA roles that indicate page chrome are removed."""
+    html = (
+        "<html><body>"
+        '<div role="banner">Site header</div>'
+        '<div role="navigation">Nav links</div>'
+        "<main><p>Real content</p></main>"
+        '<div role="complementary">Sidebar</div>'
+        "</body></html>"
+    )
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = (html, "text/html")
+        result = await fetch_web(url="https://example.com")
+
+    assert "Real content" in result
+    assert "Site header" not in result
+    assert "Nav links" not in result
+    assert "Sidebar" not in result
+
+
+async def test_fetch_web_targets_main_element():
+    """Content inside <main> is preserved; content outside is excluded."""
+    html = (
+        "<html><body>"
+        "<header><p>Page header noise</p></header>"
+        "<main><h1>Article</h1><p>Body text</p></main>"
+        "<footer><p>Footer noise</p></footer>"
+        "</body></html>"
+    )
+    with patch.object(
+        server.searxng_client, "fetch", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = (html, "text/html")
+        result = await fetch_web(url="https://example.com")
+
+    assert "Body text" in result
+    assert "Footer noise" not in result
+
+
+async def test_fetch_web_propagates_errors():
+    """fetch_web lets exceptions propagate — FastMCP converts them to MCP errors."""
     with patch.object(
         server.searxng_client, "fetch", new_callable=AsyncMock
     ) as mock_fetch:
         mock_fetch.side_effect = Exception("timeout")
         with pytest.raises(Exception, match="timeout"):
-            await fetch_url(url="https://example.com")
+            await fetch_web(url="https://example.com")
 
 
 # ---------------------------------------------------------------------------
