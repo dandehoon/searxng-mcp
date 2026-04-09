@@ -32,7 +32,7 @@ pyproject.toml        — deps: fastmcp, httpx, markdownify; dev: ruff, mypy, py
 | Tool name | Function | Description |
 |-----------|----------|-------------|
 | `search-web` | `search_web` | Search via SearXNG JSON API; returns `SearchResponse` dataclass |
-| `fetch-url` | `fetch_url` | Fetch a URL; converts HTML → Markdown via `markdownify` |
+| `fetch-web` | `fetch_web` | Fetch a URL; converts HTML → Markdown via `markdownify` |
 
 Tool names are **kebab-case** (set via `@mcp.tool(name="...")`).
 
@@ -78,6 +78,8 @@ docker run --rm -p 8000:8000 -e TRANSPORT=http searxng-mcp:latest
 | `SEARXNG_SAFESEARCH` | `0` | Safe search: `0` = off, `1` = moderate, `2` = strict |
 | `SEARXNG_TIME_RANGE` | — | Filter by recency: `day`, `week`, `month`, or `year` |
 | `SEARXNG_ENGINES` | — | Comma-separated engines to force (e.g. `google,bing`) |
+| `DISABLE_MCP_SERVER` | `false` | Skip MCP server; run SearXNG only (container as search backend) |
+| `DISABLE_FETCH_WEB` | `false` | Remove the `fetch-web` tool from the MCP server |
 
 ## Development commands
 
@@ -97,5 +99,5 @@ make dev           # run server locally (needs external SearXNG at SEARXNG_URL)
 - Python version in the venv is **3.14** (Void Linux bleeding-edge). Don't hard-code `python3.14` paths; use the venv binary.
 - `config/settings.yml` **must** include `search.formats: [html, json]` — without it SearXNG rejects JSON API requests.
 - When `exec` replaces the entrypoint shell, the `trap cleanup EXIT` does NOT fire. Granian becomes an orphan but Docker kills all processes on container stop anyway.
-- `markdownify` strips `script`, `style`, `head`, `nav`, `footer`, `aside` tags from fetched pages. Adjust the `strip=` list in `server.py:fetch_url` if needed.
+- `markdownify` strips `script`, `style`, `head`, `nav`, `footer`, `aside` tags from fetched pages. Adjust the `strip=` list in `server.py:fetch_web` if needed.
 - FastMCP version in the image: **3.1.1** (check with `uv pip show fastmcp` inside the venv). The `@mcp.tool(name="...")` decorator syntax requires FastMCP ≥ 2.0.

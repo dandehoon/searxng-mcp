@@ -68,7 +68,7 @@ Search the web via SearXNG. Returns titles, URLs, snippets, and relevance scores
 
 `safesearch`, `time_range`, and `engines` are not exposed as tool parameters — configure them via environment variables instead.
 
-### `fetch-url`
+### `fetch-web`
 
 Fetch a URL and return its content as readable Markdown. Scripts, nav, footer, and sidebar elements are stripped automatically.
 

@@ -17,8 +17,14 @@ SEARXNG_SAFESEARCH: int = int(os.environ.get("SEARXNG_SAFESEARCH", "0"))
 SEARXNG_TIME_RANGE: str | None = os.environ.get("SEARXNG_TIME_RANGE") or None
 SEARXNG_ENGINES: str | None = os.environ.get("SEARXNG_ENGINES") or None
 
+# Feature toggles
+DISABLE_FETCH_WEB: bool = os.environ.get("DISABLE_FETCH_WEB", "false").lower() == "true"
+
 FETCH_HEADERS: dict[str, str] = {
-    "User-Agent": (
-        "Mozilla/5.0 (compatible; searxng-mcp/1.0; +https://github.com/searxng/searxng-mcp)"
-    )
+    # Prefer markdown where the server supports content negotiation (e.g. Cloudflare
+    # Markdown for Agents), fall back to HTML, then anything else.
+    "Accept": "text/markdown, text/html, */*;q=0.9",
+    # Honest bot UA: transparent identity helps agent-optimized sites serve better content
+    # and avoids triggering anti-bot systems tuned to detect fake browser fingerprints.
+    "User-Agent": "searxng-mcp/1.0 (+https://github.com/dandehoon/searxng-mcp)",
 }

@@ -140,7 +140,7 @@ def http_container():
 
 @pytest.mark.timeout(180)
 def test_stdio_e2e(stdio_container):
-    """Full E2E: MCP handshake + search-web + fetch-url over STDIO transport."""
+    """Full E2E: MCP handshake + search-web + fetch-web over STDIO transport."""
     proc = stdio_container
 
     # 1. MCP initialize handshake
@@ -198,7 +198,8 @@ def test_stdio_e2e(stdio_container):
     assert text, "Response content text is empty"
     assert not text.startswith("Search failed"), f"Search returned an error: {text}"
 
-    # 4. fetch-url tool call
+    # 4a. fetch-web: HTML path — web-scraping.dev is a dedicated scraper test site
+    #     with a stable product page, proper <main> element, and known content.
     _send(
         proc,
         {
@@ -206,21 +207,55 @@ def test_stdio_e2e(stdio_container):
             "id": 3,
             "method": "tools/call",
             "params": {
-                "name": "fetch-url",
-                "arguments": {"url": "https://example.com"},
+                "name": "fetch-web",
+                "arguments": {"url": "https://web-scraping.dev/product/1"},
             },
         },
     )
 
     fetch_response = _read_response(proc, timeout=30.0)
     assert "error" not in fetch_response, (
-        f"fetch-url returned an error: {fetch_response.get('error')}"
+        f"fetch-web (HTML) returned an error: {fetch_response.get('error')}"
     )
     fetch_content = fetch_response.get("result", {}).get("content", [])
-    assert fetch_content, f"fetch-url result has no content: {fetch_response}"
+    assert fetch_content, f"fetch-web (HTML) result has no content: {fetch_response}"
     fetch_text = fetch_content[0].get("text", "")
-    assert fetch_text, "fetch-url response content text is empty"
-    assert "<html>" not in fetch_text, "Raw HTML leaked into fetch-url output"
+    assert fetch_text, "fetch-web (HTML) response text is empty"
+    assert "<html>" not in fetch_text, "Raw HTML leaked into fetch-web output"
+    assert "Box of Chocolate" in fetch_text, (
+        "Expected product content not found in fetch-web output"
+    )
+
+    # 4b. fetch-web: native markdown path — Cloudflare developer docs respond with
+    #     Content-Type: text/markdown when Accept: text/markdown is sent,
+    #     which our client sends by default via FETCH_HEADERS.
+    _send(
+        proc,
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "fetch-web",
+                "arguments": {
+                    "url": "https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/"
+                },
+            },
+        },
+    )
+
+    md_response = _read_response(proc, timeout=30.0)
+    assert "error" not in md_response, (
+        f"fetch-web (markdown) returned an error: {md_response.get('error')}"
+    )
+    md_content = md_response.get("result", {}).get("content", [])
+    assert md_content, f"fetch-web (markdown) result has no content: {md_response}"
+    md_text = md_content[0].get("text", "")
+    assert md_text, "fetch-web (markdown) response text is empty"
+    assert "Markdown" in md_text, (
+        "Expected markdown content not found in fetch-web output"
+    )
+    assert "<html>" not in md_text, "Raw HTML leaked into fetch-web markdown output"
 
 
 # ---------------------------------------------------------------------------

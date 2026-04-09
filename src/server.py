@@ -11,12 +11,13 @@ from typing import Annotated
 
 import httpx
 from bs4 import BeautifulSoup
-from markdownify import markdownify
+from markdownify import MarkdownConverter
 from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import Response
 
 import config
+import html_utils
 import searxng_client
 from fastmcp import FastMCP
 
@@ -120,7 +121,7 @@ async def search_web(
             description=f"Maximum number of results to return. Applied client-side after fetching. Default: {config.SEARXNG_MAX_RESULTS}."
         ),
     ] = config.SEARXNG_MAX_RESULTS,
-) -> SearchResponse:
+) -> str:
     """Search the web via SearXNG and return ranked results with titles, URLs, snippets, and relevance scores."""
     params: dict[str, str | int] = {
         "q": query,
@@ -145,24 +146,48 @@ async def search_web(
         )
         for r in all_results[:max_results]
     ]
-    return SearchResponse(
-        query=query, total=len(all_results), shown=len(results), results=results
+    return str(
+        SearchResponse(
+            query=query, total=len(all_results), shown=len(results), results=results
+        )
     )
 
 
-_STRIP_TAGS = ["script", "style", "head", "nav", "footer", "aside"]
+@dataclass
+class FetchResponse:
+    url: str
+    title: str
+    content: str
+
+    def __str__(self) -> str:
+        return f"Title: {self.title}\nURL: {self.url}\n\n{self.content}"
 
 
-@mcp.tool(name="fetch-url")
-async def fetch_url(
+@mcp.tool(name="fetch-web")
+async def fetch_web(
     url: Annotated[str, Field(description="The URL to fetch.")],
 ) -> str:
-    """Fetch a URL and return its content as Markdown. Strips noise tags (nav, footer, scripts, etc.) before conversion."""
-    html = await searxng_client.fetch(url)
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(_STRIP_TAGS):
-        tag.decompose()
-    return markdownify(str(soup))
+    """Fetch a URL and return its title, URL, and main content as clean Markdown."""
+    body, content_type = await searxng_client.fetch(url)
+    if "text/markdown" in content_type:
+        title = html_utils.extract_title_from_markdown(body, url)
+        content = html_utils.clean_markdown(body)
+    else:
+        soup = BeautifulSoup(body, "html.parser")
+        title = html_utils.extract_title(soup, url)
+        for tag in soup(html_utils.STRIP_TAGS):
+            tag.decompose()
+        for tag in soup.select(html_utils.STRIP_SELECTORS_STR):
+            tag.decompose()
+        content_node = html_utils.find_main_content(soup)
+        content = html_utils.clean_markdown(
+            MarkdownConverter().convert_soup(content_node)
+        )
+    return str(FetchResponse(url=url, title=title, content=content))
+
+
+if config.DISABLE_FETCH_WEB:
+    mcp.local_provider.remove_tool("fetch-web")
 
 
 def _build_target_url(request: Request) -> str:

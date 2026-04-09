@@ -42,6 +42,8 @@ ENV SEARXNG_URL=http://127.0.0.1:8080
 ENV SEARXNG_TIMEOUT=30.0
 ENV FETCH_TIMEOUT=60.0
 ENV SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
+ENV DISABLE_MCP_SERVER=false
+ENV DISABLE_FETCH_WEB=false
 
 # Port exposed only when TRANSPORT=http (ignored in stdio mode)
 EXPOSE 8000

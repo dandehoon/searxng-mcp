@@ -112,7 +112,7 @@ Then use `searxng-mcp:latest` instead of the registry image in any client config
 | Tool         | Description                                                                       |
 | ------------ | --------------------------------------------------------------------------------- |
 | `search-web` | Search the web via SearXNG. Returns titles, URLs, snippets, and relevance scores. |
-| `fetch-url`  | Fetch a URL and return its content as readable Markdown text.                     |
+| `fetch-web`  | Fetch a URL and return its content as readable Markdown text.                     |
 
 ### `search-web` parameters
 
@@ -126,7 +126,7 @@ Then use `searxng-mcp:latest` instead of the registry image in any client config
 
 `safesearch`, `time_range`, and `engines` are not exposed as tool parameters — configure them via environment variables instead.
 
-### `fetch-url` parameters
+### `fetch-web` parameters
 
 | Parameter | Type   | Description             |
 | --------- | ------ | ----------------------- |
@@ -152,6 +152,8 @@ HTML is converted to Markdown before returning — `<script>`, `<style>`, `<nav>
 | `SEARXNG_SAFESEARCH`   | `0`                     | Safe search: `0` = off, `1` = moderate, `2` = strict  |
 | `SEARXNG_TIME_RANGE`   | —                       | Filter by recency: `day`, `week`, `month`, or `year`  |
 | `SEARXNG_ENGINES`      | —                       | Comma-separated engines to force (e.g. `google,bing`) |
+| `DISABLE_MCP_SERVER`   | `false`                 | Skip MCP server; run SearXNG only (container as search backend) |
+| `DISABLE_FETCH_WEB`    | `false`                 | Remove the `fetch-web` tool from the MCP server       |
 
 ## Architecture
 
@@ -165,7 +167,7 @@ docker run --rm -i searxng-mcp
     │
     └── MCP server (fastmcp)
             ├── search-web → httpx → SearXNG JSON API
-            └── fetch-url  → httpx → remote URL → markdownify
+            └── fetch-web  → httpx → remote URL → markdownify
 ```
 
 Built on top of `docker.io/searxng/searxng:latest` — no C extension recompilation needed. Updating SearXNG is a single `docker pull` away.
