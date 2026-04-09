@@ -39,9 +39,9 @@ until wget -q --timeout=2 -O /dev/null "${SEARXNG_URL}/healthz" 2>/dev/null; do
 done
 echo "SearXNG is ready" >&2
 
-# When DISABLE_MCP_SERVER=true, keep SearXNG in the foreground (no MCP server).
+# When SEARXNG_MCP_DISABLE_SERVER=true, keep SearXNG in the foreground (no MCP server).
 # Useful when only the search engine is needed (e.g. as a backend for another MCP client).
-if [ "${DISABLE_MCP_SERVER:-false}" = "true" ]; then
+if [ "${SEARXNG_MCP_DISABLE_SERVER:-false}" = "true" ]; then
     echo "MCP server disabled — running SearXNG only" >&2
     wait
 else

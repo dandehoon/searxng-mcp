@@ -117,7 +117,7 @@ def http_container():
             "-p",
             f"{port}:8000",
             "-e",
-            "TRANSPORT=http",
+            "SEARXNG_MCP_TRANSPORT=http",
             "searxng-mcp:latest",
         ],
         stdin=subprocess.DEVNULL,
